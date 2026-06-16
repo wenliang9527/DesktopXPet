@@ -33,33 +33,43 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
   const { handleMouseMove, handleMouseLeave } = useClickThrough(canvasRef)
   const { onMouseDown } = useDraggable()
 
-  // 加载皮肤图片
+  // 加载皮肤图片（并行读取 + 并行解码 + 内存优化）
   useEffect(() => {
     if (!manifest || !skinDir) return
 
     const states = ['idle', 'working', 'happy', 'sleeping', 'error']
-    const promises = states.map(
-      async (state) => {
-        const imagePath = `${skinDir}/${state}.png`
-        const dataUrl = await window.desktopXPet.readSkinImage(imagePath)
-        if (!dataUrl) return
-        return new Promise<void>((resolve) => {
-          const img = new Image()
-          img.onload = () => {
-            imagesRef.current[state] = img
-            resolve()
-          }
-          img.onerror = () => {
-            console.error('Failed to load image:', imagePath)
-            resolve()
-          }
-          img.src = dataUrl
-        })
-      }
-    )
 
-    Promise.all(promises).then(() => {
-      // 图片加载完毕后，启动初始动画
+    // 释放旧皮肤的 Image 对象
+    const oldImages = imagesRef.current
+    imagesRef.current = {}
+    for (const key of Object.keys(oldImages)) {
+      if (oldImages[key]) oldImages[key].src = ''
+    }
+
+    // 阶段 1：并行读取所有图片的 base64
+    Promise.all(
+      states.map((state) => window.desktopXPet.readSkinImage(`${skinDir}/${state}.png`))
+    ).then((dataUrls) => {
+      // 阶段 2：并行解码为 Image 对象
+      return Promise.all(
+        states.map((state, i) => {
+          const dataUrl = dataUrls[i]
+          if (!dataUrl) return Promise.resolve()
+          return new Promise<void>((resolve) => {
+            const img = new Image()
+            img.onload = () => {
+              imagesRef.current[state] = img
+              resolve()
+            }
+            img.onerror = () => {
+              console.error('Failed to load image:', state)
+              resolve()
+            }
+            img.src = dataUrl
+          })
+        })
+      )
+    }).then(() => {
       setupAnimator('idle')
     })
   }, [manifest, skinDir])

@@ -23,5 +23,8 @@ export const IPC = {
   APP_OPEN_DASHBOARD: 'app:open-dashboard',
   APP_QUIT: 'app:quit',
   APP_GET_STORE: 'app:get-store',
-  APP_SET_STORE: 'app:set-store'
+  APP_SET_STORE: 'app:set-store',
+
+  // 音效
+  SOUND_PLAY: 'sound:play'
 } as const

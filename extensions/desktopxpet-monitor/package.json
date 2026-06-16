@@ -1,0 +1,64 @@
+{
+  "name": "desktopxpet-monitor",
+  "displayName": "DesktopXPet Monitor",
+  "description": "Monitor VS Code/Cursor editor events and push status to DesktopXPet",
+  "version": "0.1.0",
+  "publisher": "DesktopXPet",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "DesktopXPet Monitor",
+      "properties": {
+        "desktopxpet-monitor.serverPort": {
+          "type": "number",
+          "default": 9527,
+          "description": "DesktopXPet API port"
+        },
+        "desktopxpet-monitor.serverToken": {
+          "type": "string",
+          "default": "",
+          "description": "API token (auto-read from ~/.xpet/config.json)"
+        },
+        "desktopxpet-monitor.idleTimeout": {
+          "type": "number",
+          "default": 60,
+          "description": "Idle timeout in seconds"
+        },
+        "desktopxpet-monitor.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable monitoring"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "desktopxpet-monitor.toggle",
+        "title": "Toggle DesktopXPet Monitor"
+      },
+      {
+        "command": "desktopxpet-monitor.status",
+        "title": "Show DesktopXPet Status"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.3.0"
+  }
+}

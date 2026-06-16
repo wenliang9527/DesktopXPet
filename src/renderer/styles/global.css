@@ -357,3 +357,46 @@ body,
   padding: 2px 6px;
   border-radius: 8px;
 }
+
+/* 状态时间线 */
+.timeline-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 6px;
+}
+
+.status-timeline {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 60px;
+  margin-bottom: 20px;
+  padding: 8px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+}
+
+.timeline-bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 3px 3px 0 0;
+  transition: height 0.3s;
+  position: relative;
+  cursor: default;
+}
+
+.timeline-bar::after {
+  content: attr(data-label);
+  position: absolute;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: rgba(255,255,255,0.3);
+  white-space: nowrap;
+  display: none;
+}
+
+.status-timeline:hover .timeline-bar::after {
+  display: block;
+}

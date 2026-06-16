@@ -34,7 +34,21 @@ contextBridge.exposeInMainWorld('desktopXPet', {
   setSettings: (settings: any) => ipcRenderer.invoke(IPC.APP_SET_STORE, settings),
 
   // 退出
-  quit: () => ipcRenderer.invoke(IPC.APP_QUIT)
+  quit: () => ipcRenderer.invoke(IPC.APP_QUIT),
+
+  // 音效
+  playSound: (name: string) => ipcRenderer.send(IPC.SOUND_PLAY, name)
+})
+
+// 音效播放 — 主进程返回文件路径后在渲染进程播放
+ipcRenderer.on('sound:play-file', (_, filePath: string) => {
+  try {
+    const audio = new Audio(`file:///${filePath.replace(/\\/g, '/')}`)
+    audio.volume = 0.5
+    audio.play().catch(() => {})
+  } catch {
+    // 静默忽略
+  }
 })
 
 // 类型声明
@@ -55,4 +69,5 @@ export interface DesktopXPetAPI {
   getSettings: () => Promise<any>
   setSettings: (settings: any) => Promise<void>
   quit: () => Promise<void>
+  playSound: (name: string) => void
 }

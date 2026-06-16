@@ -60,6 +60,12 @@ function App() {
 
       window.desktopXPet.onStatusUpdate((status: any) => {
         if (status.petState) {
+          // 状态变化时播放音效
+          if (status.petState === 'happy') {
+            window.desktopXPet.playSound('complete')
+          } else if (status.petState === 'error') {
+            window.desktopXPet.playSound('error')
+          }
           setPetState(status.petState)
         }
         useAppStore.getState().setSummary(status.summary || 'DesktopXPet 待机中')

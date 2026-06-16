@@ -11,10 +11,10 @@ export class PetWindowManager {
   create(): BrowserWindow {
     const display = screen.getPrimaryDisplay()
     const { width: screenW, height: screenH } = display.workAreaSize
+    const workArea = display.workArea
 
-    // 默认位置：屏幕右下角
-    const defaultX = screenW - PET_WINDOW_WIDTH - 50
-    const defaultY = screenH - PET_WINDOW_HEIGHT - 20
+    const defaultX = workArea.x + screenW - PET_WINDOW_WIDTH - 50
+    const defaultY = workArea.y + screenH - PET_WINDOW_HEIGHT - 20
 
     this.win = new BrowserWindow({
       width: PET_WINDOW_WIDTH,
@@ -86,12 +86,11 @@ export class PetWindowManager {
     try {
       const pos = getStore().get('pet.position')
       if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
-        // 验证位置是否在屏幕范围内
         const display = screen.getDisplayNearestPoint({ x: pos.x, y: pos.y })
-        const { width: sw, height: sh } = display.workAreaSize
-        if (pos.x >= 0 && pos.x < sw && pos.y >= 0 && pos.y < sh) {
-          this.win.setPosition(pos.x, pos.y)
-        }
+        const workArea = display.workArea
+        const clampedX = Math.max(workArea.x, Math.min(pos.x, workArea.x + workArea.width - PET_WINDOW_WIDTH))
+        const clampedY = Math.max(workArea.y, Math.min(pos.y, workArea.y + workArea.height - PET_WINDOW_HEIGHT))
+        this.win.setPosition(clampedX, clampedY)
       }
     } catch {
       // 忽略错误，使用默认位置
@@ -116,10 +115,12 @@ export class PetWindowManager {
 
   resetPosition(): void {
     if (!this.win) return
-    const display = screen.getPrimaryDisplay()
+    const cursorPoint = screen.getCursorScreenPoint()
+    const display = screen.getDisplayNearestPoint(cursorPoint)
     const { width: screenW, height: screenH } = display.workAreaSize
-    const x = screenW - PET_WINDOW_WIDTH - 50
-    const y = screenH - PET_WINDOW_HEIGHT - 20
+    const workArea = display.workArea
+    const x = workArea.x + screenW - PET_WINDOW_WIDTH - 50
+    const y = workArea.y + screenH - PET_WINDOW_HEIGHT - 20
     this.win.setPosition(x, y)
     this.savePosition()
   }

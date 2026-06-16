@@ -15,6 +15,7 @@ import { SystemMonitorPlugin } from './plugins/system'
 import { GitHubPlugin } from './plugins/github'
 import { OllamaPlugin } from './plugins/ollama'
 import { SkinLoader } from './skin-loader'
+import { initSound, getSoundPath } from './sound'
 import { IPC } from '../shared/ipc-channels'
 import { SHUTDOWN_TIMEOUT } from '../shared/constants'
 
@@ -307,6 +308,14 @@ function setupIPC(): void {
   ipcMain.handle(IPC.PLUGIN_TOGGLE, async (_, { name, enabled }) => {
     pluginRegistry?.togglePlugin(name, enabled)
   })
+
+  // 音效播放 — 返回文件路径给渲染进程
+  ipcMain.on(IPC.SOUND_PLAY, (event, name: string) => {
+    const soundPath = getSoundPath(name)
+    if (soundPath) {
+      event.sender.send('sound:play-file', soundPath)
+    }
+  })
 }
 
 async function gracefulShutdown(): Promise<void> {
@@ -381,6 +390,9 @@ app.whenReady().then(async () => {
 
   // 初始化存储
   initStore()
+
+  // 初始化音效
+  initSound()
 
   // 创建宠物窗口
   petWindow = new PetWindowManager()
