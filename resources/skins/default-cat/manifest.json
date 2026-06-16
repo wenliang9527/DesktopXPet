@@ -1,0 +1,38 @@
+{
+  "name": "默认猫咪 (Default Cat)",
+  "author": "DesktopXPet",
+  "version": "1.0.0",
+  "preview": "preview.png",
+  "description": "A cute orange tabby cat pixel pet",
+  "frameSize": {
+    "width": 128,
+    "height": 128
+  },
+  "animations": {
+    "idle": {
+      "frames": 4,
+      "fps": 4,
+      "loop": true
+    },
+    "working": {
+      "frames": 6,
+      "fps": 8,
+      "loop": true
+    },
+    "happy": {
+      "frames": 4,
+      "fps": 6,
+      "loop": false
+    },
+    "sleeping": {
+      "frames": 2,
+      "fps": 1,
+      "loop": true
+    },
+    "error": {
+      "frames": 3,
+      "fps": 4,
+      "loop": true
+    }
+  }
+}

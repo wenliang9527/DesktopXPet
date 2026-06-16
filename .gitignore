@@ -1,0 +1,17 @@
+node_modules
+dist
+out
+*.log
+*.tsbuildinfo
+
+# 所有 . 开头的文件/目录（除 .gitignore）
+.*
+!.gitignore
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Electron
+release/
+dev-app-update.yml
