@@ -117,7 +117,10 @@ body,
   font-family: 'Microsoft YaHei', -apple-system, sans-serif;
   background: #1a1a2e;
   color: #eee;
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .dashboard-title {

@@ -26,7 +26,12 @@ export default function Dashboard() {
   useEffect(() => {
     window.desktopXPet.getStatusSnapshot().then(setStatus)
 
+    let lastUpdate = 0
     window.desktopXPet.onStatusUpdate((newStatus: any) => {
+      const now = Date.now()
+      // 限制更新频率，最少 500ms 间隔
+      if (now - lastUpdate < 500) return
+      lastUpdate = now
       setStatus(newStatus)
       if (newStatus.petState) {
         setHistory((prev) => {
