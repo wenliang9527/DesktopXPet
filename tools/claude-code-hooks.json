@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.xpet/xpet-notify.sh claude-code working \"Claude Code: executing tool...\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.xpet/xpet-notify.sh claude-code completed \"Claude Code: tool completed\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.xpet/xpet-notify.sh claude-code idle \"Claude Code: session ended\""
+          }
+        ]
+      }
+    ]
+  }
+}

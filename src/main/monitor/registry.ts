@@ -1,4 +1,5 @@
-import log from 'electron-log/main'
+import { createLogger } from '../utils/logger'
+const log = createLogger('PluginRegistry')
 import type { MonitorPlugin } from '@shared/types'
 import type { PluginConfig, PluginInfo } from '@shared/plugin-api'
 
@@ -60,7 +61,7 @@ export class PluginRegistry {
       infos.push({
         name: plugin.name,
         icon: plugin.icon,
-        enabled: config?.enabled !== false
+        enabled: config?.enabled !== false,
       })
     }
     return infos

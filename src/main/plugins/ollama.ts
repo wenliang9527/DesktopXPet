@@ -13,7 +13,7 @@ export class OllamaPlugin implements MonitorPlugin {
     try {
       // 检查 Ollama 是否在运行
       const modelsResp = await fetch('http://localhost:11434/api/tags', {
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
       })
 
       if (!modelsResp.ok) {
@@ -21,7 +21,7 @@ export class OllamaPlugin implements MonitorPlugin {
           tool: 'Ollama',
           status: 'error',
           summary: 'Ollama 服务响应异常',
-          timestamp: Date.now()
+          timestamp: Date.now(),
         }
       }
 
@@ -30,7 +30,7 @@ export class OllamaPlugin implements MonitorPlugin {
 
       // 检查是否有正在运行的推理
       const psResp = await fetch('http://localhost:11434/api/ps', {
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
       })
 
       let runningModels: any[] = []
@@ -50,17 +50,17 @@ export class OllamaPlugin implements MonitorPlugin {
           availableModels: models.map((m: any) => m.name),
           runningModels: runningModels.map((m: any) => ({
             name: m.name,
-            size: m.size
-          }))
+            size: m.size,
+          })),
         },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     } catch {
       return {
         tool: 'Ollama',
         status: 'idle',
         summary: 'Ollama 服务未运行',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     }
   }

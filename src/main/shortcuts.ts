@@ -1,5 +1,6 @@
 import { globalShortcut } from 'electron'
-import log from 'electron-log/main'
+import { createLogger } from './utils/logger'
+const log = createLogger('Shortcuts')
 import type { PetWindowManager } from './window'
 
 export function registerGlobalShortcuts(

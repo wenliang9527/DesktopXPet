@@ -3,11 +3,7 @@ import { useCallback, useRef } from 'react'
 /**
  * 闲置计时器 hook — N 分钟无鼠标交互后触发回调
  */
-export function useIdleTimer(
-  timeoutMinutes: number,
-  onIdle: () => void,
-  onActivity: () => void
-) {
+export function useIdleTimer(timeoutMinutes: number, onIdle: () => void, onActivity: () => void) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isIdleRef = useRef(false)
 
@@ -21,10 +17,13 @@ export function useIdleTimer(
       onActivity()
     }
 
-    timerRef.current = setTimeout(() => {
-      isIdleRef.current = true
-      onIdle()
-    }, timeoutMinutes * 60 * 1000)
+    timerRef.current = setTimeout(
+      () => {
+        isIdleRef.current = true
+        onIdle()
+      },
+      timeoutMinutes * 60 * 1000
+    )
   }, [timeoutMinutes, onIdle, onActivity])
 
   const stopTimer = useCallback(() => {

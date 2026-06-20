@@ -1,4 +1,5 @@
-import log from 'electron-log/main'
+import { createLogger } from '../utils/logger'
+const log = createLogger('MonitorService')
 import type { MonitorPlugin, MonitorStatus, AggregatedStatus, PushStatus } from '@shared/types'
 import { PUSH_TTL_MS } from '@shared/constants'
 import { PluginRegistry } from './registry'
@@ -14,6 +15,8 @@ export class MonitorService {
   private pushCache: Map<string, { data: PushStatus; expiresAt: number }> = new Map()
   private lastFetchResults: Map<string, MonitorStatus> = new Map()
   private onUpdate?: (status: AggregatedStatus) => void
+  // 已通知过的 completed 事件 key 集合（`${tool}|${timestamp}`），用于通知去重
+  private notifiedCompletedKeys: Set<string> = new Set()
 
   constructor(registry: PluginRegistry, onUpdate?: (status: AggregatedStatus) => void) {
     this.registry = registry
@@ -37,7 +40,6 @@ export class MonitorService {
   aggregateAll(): AggregatedStatus {
     const pollStatuses: MonitorStatus[] = Array.from(this.lastFetchResults.values())
 
-    // 合并 Push 数据（未过期的）
     const now = Date.now()
     const allStatuses: MonitorStatus[] = [...pollStatuses]
     for (const [tool, cached] of this.pushCache) {
@@ -47,7 +49,7 @@ export class MonitorService {
           status: cached.data.status,
           summary: cached.data.summary,
           details: cached.data.details,
-          timestamp: now
+          timestamp: now,
         }
         const existing = allStatuses.findIndex((s) => s.tool === tool)
         if (existing >= 0) {
@@ -76,18 +78,43 @@ export class MonitorService {
    * 启动单个插件的轮询
    */
   private startPlugin(plugin: MonitorPlugin): void {
-    // 先停止已有的
     this.stopPlugin(plugin.name)
-
-    // 立即执行一次
     this.fetchPluginStatus(plugin)
+    this.setPluginTimer(plugin)
+  }
 
-    // 定时轮询
+  /**
+   * 设置插件定时器（支持动态间隔）
+   */
+  private setPluginTimer(plugin: MonitorPlugin): void {
+    const currentInterval = this.getPluginInterval(plugin)
     const timer = setInterval(() => {
       this.fetchPluginStatus(plugin)
-    }, plugin.pollInterval)
+    }, currentInterval)
 
     this.timers.set(plugin.name, timer)
+    log.debug(`[${plugin.name}] Timer set with interval ${currentInterval}ms`)
+  }
+
+  /**
+   * 获取插件当前轮询间隔（支持动态调整）
+   */
+  private getPluginInterval(plugin: MonitorPlugin): number {
+    const lastStatus = this.lastFetchResults.get(plugin.name)
+    let interval = plugin.pollInterval
+
+    if (lastStatus && plugin.adjustPollInterval) {
+      interval = plugin.adjustPollInterval(lastStatus)
+    }
+
+    if (plugin.minPollInterval) {
+      interval = Math.max(interval, plugin.minPollInterval)
+    }
+    if (plugin.maxPollInterval) {
+      interval = Math.min(interval, plugin.maxPollInterval)
+    }
+
+    return interval
   }
 
   /**
@@ -108,13 +135,19 @@ export class MonitorService {
     try {
       const status = await plugin.fetchStatus()
       this.lastFetchResults.set(plugin.name, status)
+
+      // 如果插件支持动态间隔调整，重新设置定时器
+      if (plugin.adjustPollInterval || plugin.minPollInterval || plugin.maxPollInterval) {
+        this.stopPlugin(plugin.name)
+        this.setPluginTimer(plugin)
+      }
     } catch (err) {
       log.warn(`Plugin "${plugin.name}" fetch failed:`, err)
       this.lastFetchResults.set(plugin.name, {
         tool: plugin.name,
         status: 'error',
         summary: `${plugin.name} 获取数据失败`,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       })
     }
     this.emitUpdate()
@@ -126,7 +159,7 @@ export class MonitorService {
   handlePush(push: PushStatus): void {
     this.pushCache.set(push.tool, {
       data: push,
-      expiresAt: Date.now() + PUSH_TTL_MS
+      expiresAt: Date.now() + PUSH_TTL_MS,
     })
     log.info(`Push received: ${push.tool} = ${push.status} - ${push.summary}`)
     this.emitUpdate()
@@ -142,7 +175,7 @@ export class MonitorService {
     return {
       petState: 'idle',
       tools: [],
-      summary: 'DesktopXPet 待机中'
+      summary: 'DesktopXPet 待机中',
     }
   }
 
@@ -168,7 +201,7 @@ export class MonitorService {
     return {
       petState,
       tools: allStatuses,
-      summary
+      summary,
     }
   }
 
@@ -202,10 +235,73 @@ export class MonitorService {
 
   /**
    * 发出状态更新通知
+   *
+   * 通知去重：同一 completed 事件（tool + timestamp）在 30 秒窗口内只标记一次 newCompleted，
+   * 避免 happy 状态持续期间每次轮询都重复触发通知/声音。UI 的 petState 动画不受影响。
+   *
+   * 状态变化检测：如果关键状态字段（petState、tools 的 tool/status/summary、newCompleted）
+   * 都没有变化，跳过广播，避免不必要的 IPC 和 React 重渲染。
    */
   private emitUpdate(): void {
     const status = this.aggregateAll()
+
+    const now = Date.now()
+    const COMPLETED_WINDOW = 30_000
+
+    // 收集当前 30 秒窗口内的 completed 事件 key
+    const currentCompletedKeys = new Set<string>()
+    for (const t of status.tools) {
+      if (t.status === 'completed' && now - t.timestamp < COMPLETED_WINDOW) {
+        currentCompletedKeys.add(`${t.tool}|${t.timestamp}`)
+      }
+    }
+
+    // 判断是否有"新出现"的 completed 事件（未通知过）
+    let hasNew = false
+    for (const key of currentCompletedKeys) {
+      if (!this.notifiedCompletedKeys.has(key)) {
+        hasNew = true
+        this.notifiedCompletedKeys.add(key)
+      }
+    }
+
+    // 清理已通知集合中过期的 key（超过 30 秒窗口），避免集合无限增长
+    for (const key of this.notifiedCompletedKeys) {
+      const idx = key.lastIndexOf('|')
+      if (idx > 0) {
+        const ts = Number(key.slice(idx + 1))
+        if (now - ts >= COMPLETED_WINDOW) {
+          this.notifiedCompletedKeys.delete(key)
+        }
+      }
+    }
+
+    status.newCompleted = hasNew
+
+    // 状态变化检测：只比较结构性字段（petState、tool 列表、各 tool 的 status）。
+    // 不比较 summary，因为 summary 可能包含每次轮询都变化的易变值（如 CPU%），
+    // 会导致 idle 状态下持续广播。summary 仍会更新到 latestStatus，供 getSnapshot 使用。
+    if (this.latestStatus && !hasNew) {
+      const prev = this.latestStatus
+      const stateChanged = prev.petState !== status.petState
+      const toolsChanged =
+        prev.tools.length !== status.tools.length ||
+        prev.tools.some((t, i) => {
+          const cur = status.tools[i]
+          return !cur || t.tool !== cur.tool || t.status !== cur.status
+        })
+
+      if (!stateChanged && !toolsChanged) {
+        // 状态未变化，更新 latestStatus 但不广播
+        this.latestStatus = status
+        return
+      }
+    }
+
     this.latestStatus = status
+    log.debug(
+      `Status update: petState=${status.petState}, tools=${status.tools.length}, summary="${status.summary}", newCompleted=${hasNew}`
+    )
     this.onUpdate?.(status)
   }
 }

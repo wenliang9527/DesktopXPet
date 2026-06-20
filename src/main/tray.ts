@@ -1,14 +1,18 @@
-import { Tray, Menu, app, nativeImage } from 'electron'
+import { Tray, Menu, app, nativeImage, shell } from 'electron'
 import { join } from 'path'
-import log from 'electron-log/main'
+import { createLogger } from './utils/logger'
+const log = createLogger('Tray')
 import type { PetWindowManager } from './window'
+import type { SkinLoader } from './skin-loader'
+import { getUserSoundDir } from './sound'
 
 let tray: Tray | null = null
 
 export function createTray(
   petWindow: PetWindowManager,
   openDashboard: () => void,
-  switchSkin: () => void
+  switchSkin: () => void,
+  skinLoader?: SkinLoader
 ): Tray {
   // 创建一个简单的托盘图标
   const iconPath = join(app.getAppPath(), 'resources', 'icons', 'tray-icon.png')
@@ -30,40 +34,62 @@ export function createTray(
   const contextMenu = Menu.buildFromTemplate([
     {
       label: '📊 打开仪表盘',
-      click: () => openDashboard()
+      click: () => openDashboard(),
     },
     { type: 'separator' },
     {
       label: '🎨 切换皮肤',
-      click: () => switchSkin()
+      click: () => switchSkin(),
+    },
+    {
+      label: '📁 打开皮肤目录',
+      click: () => {
+        const dir = skinLoader?.getUserSkinDir()
+        if (dir) shell.openPath(dir)
+      },
+    },
+    {
+      label: '🎵 打开音效目录',
+      click: () => {
+        shell.openPath(getUserSoundDir())
+      },
+    },
+    {
+      label: '🔄 刷新皮肤列表',
+      click: async () => {
+        if (skinLoader) {
+          await skinLoader.rescan()
+          log.info('Skin list refreshed from tray menu')
+        }
+      },
     },
     {
       label: '⚙️ 设置',
-      click: () => openDashboard() // 暂时复用，后续打开设置面板
+      click: () => openDashboard(), // 暂时复用，后续打开设置面板
     },
     { type: 'separator' },
     {
       label: '📌 置顶',
       type: 'checkbox',
       checked: true,
-      click: (item) => petWindow.toggleAlwaysOnTop(item.checked)
+      click: (item) => petWindow.toggleAlwaysOnTop(item.checked),
     },
     { type: 'separator' },
     {
       label: '🔄 重置位置',
-      click: () => petWindow.resetPosition()
+      click: () => petWindow.resetPosition(),
     },
     {
       label: '👁️ 显示/隐藏',
-      click: () => petWindow.toggleVisibility()
+      click: () => petWindow.toggleVisibility(),
     },
     { type: 'separator' },
     {
       label: '退出',
       click: () => {
         app.quit()
-      }
-    }
+      },
+    },
   ])
 
   tray.setContextMenu(contextMenu)

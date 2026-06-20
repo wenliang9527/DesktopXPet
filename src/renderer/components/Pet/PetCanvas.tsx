@@ -3,6 +3,7 @@ import { useAppStore } from '../../stores/appStore'
 import { useClickThrough } from '../../hooks/useClickThrough'
 import { useDraggable } from '../../hooks/useDraggable'
 import { SpriteAnimator } from './SpriteAnimator'
+import { ParticleSystem } from './ParticleSystem'
 import type { PetState, SkinManifest } from '@shared/types'
 import { PET_RENDER_SIZE } from '@shared/constants'
 
@@ -13,7 +14,7 @@ const STATE_IMAGE_MAP: Record<string, string> = {
   happy: 'happy',
   sleeping: 'sleeping',
   error: 'error',
-  waking: 'idle'
+  waking: 'idle',
 }
 
 interface PetCanvasProps {
@@ -21,78 +22,155 @@ interface PetCanvasProps {
   manifest: SkinManifest | null
 }
 
+/** 皮肤切换过渡动画时长 (ms) */
+const TRANSITION_FADE_OUT = 250
+const TRANSITION_FADE_IN = 350
+
 export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animatorRef = useRef<SpriteAnimator | null>(null)
+  // lazy init ParticleSystem，避免每次渲染都创建新实例
+  const particleRef = useRef<ParticleSystem | null>(null)
+  if (particleRef.current === null) {
+    particleRef.current = new ParticleSystem(PET_RENDER_SIZE, PET_RENDER_SIZE)
+  }
   const rafIdRef = useRef<number>(0)
   const visibleRef = useRef(true)
-  const imagesRef = useRef<Record<string, HTMLImageElement>>({})
+  const isWindowFocusedRef = useRef(true)
+  // 上一帧实际渲染的时间戳，用于帧率控制
+  const lastRenderTimeRef = useRef(0)
+  // 预缩放的精灵图（offscreen canvas，已缩放到 render size）
+  const scaledImagesRef = useRef<Record<string, HTMLCanvasElement>>({})
   const currentStateRef = useRef<PetState>('idle')
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 缓存 DPR 用于像素检测
+  const dprRef = useRef(window.devicePixelRatio || 1)
+
+  // --- 皮肤切换过渡状态 ---
+  const transitionRef = useRef({
+    alpha: 1, // 当前不透明度 (1=完全显示, 0=完全透明)
+    phase: 'none' as 'none' | 'fade-out' | 'fade-in',
+    phaseStart: 0, // 当前阶段开始时间
+    pendingManifest: null as SkinManifest | null,
+    pendingSkinDir: '' as string,
+    // 上一帧时间戳
+    lastFrame: 0,
+  })
 
   const petState = useAppStore((s) => s.petState)
-  const { handleMouseMove, handleMouseLeave } = useClickThrough(canvasRef)
+  useClickThrough(canvasRef)
   const { onMouseDown } = useDraggable()
 
-  // 加载皮肤图片（并行读取 + 并行解码 + 内存优化）
+  // 组件卸载时清理 clickTimer
   useEffect(() => {
-    if (!manifest || !skinDir) return
-
-    const states = ['idle', 'working', 'happy', 'sleeping', 'error']
-
-    // 释放旧皮肤的 Image 对象
-    const oldImages = imagesRef.current
-    imagesRef.current = {}
-    for (const key of Object.keys(oldImages)) {
-      if (oldImages[key]) oldImages[key].src = ''
+    return () => {
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current)
     }
+  }, [])
+
+  // 判断当前皮肤是否为 HD（源帧 > 渲染尺寸的 2 倍）
+  const isHDSkin = (m: SkinManifest | null): boolean => {
+    if (!m?.frameSize) return false
+    return Math.max(m.frameSize.width, m.frameSize.height) > PET_RENDER_SIZE * 1.5
+  }
+
+  // 加载皮肤图片（并行读取 + 预缩放精灵图到 render size + 应用 displayScale）
+  const loadSkinImages = useCallback((m: SkinManifest, dir: string): Promise<void> => {
+    const states = ['idle', 'working', 'happy', 'sleeping', 'error']
+    const renderSize = PET_RENDER_SIZE
+    const hd = isHDSkin(m)
+    const scale = m.displayScale ?? 1.0
+
+    // 释放旧皮肤的 canvas
+    scaledImagesRef.current = {}
 
     // 阶段 1：并行读取所有图片的 base64
-    Promise.all(
-      states.map((state) => window.desktopXPet.readSkinImage(`${skinDir}/${state}.png`))
-    ).then((dataUrls) => {
-      // 阶段 2：并行解码为 Image 对象
-      return Promise.all(
-        states.map((state, i) => {
-          const dataUrl = dataUrls[i]
-          if (!dataUrl) return Promise.resolve()
-          return new Promise<void>((resolve) => {
-            const img = new Image()
-            img.onload = () => {
-              imagesRef.current[state] = img
-              resolve()
-            }
-            img.onerror = () => {
-              console.error('Failed to load image:', state)
-              resolve()
-            }
-            img.src = dataUrl
+    return Promise.all(
+      states.map((state) => window.desktopXPet.readSkinImage(`${dir}/${state}.png`))
+    )
+      .then((dataUrls) => {
+        // 阶段 2：并行解码 + 预缩放精灵图到 render size，并应用 displayScale
+        return Promise.all(
+          states.map((state, i) => {
+            const dataUrl = dataUrls[i]
+            if (!dataUrl) return Promise.resolve()
+            return new Promise<void>((resolve) => {
+              const img = new Image()
+              img.onload = () => {
+                const animConfig = m.animations[state]
+                const frameCount = animConfig?.frames ?? 1
+                const scaledWidth = renderSize * frameCount
+                const scaledHeight = renderSize
+                const offscreen = document.createElement('canvas')
+                offscreen.width = scaledWidth
+                offscreen.height = scaledHeight
+                const ctx = offscreen.getContext('2d')
+                if (ctx) {
+                  // HD 皮肤使用双线性插值（平滑），像素皮肤使用最近邻（锐利）
+                  ctx.imageSmoothingEnabled = hd
+                  if (hd) {
+                    ctx.imageSmoothingQuality = 'high'
+                  }
+
+                  if (Math.abs(scale - 1.0) < 0.01) {
+                    // 无缩放：直接绘制整张精灵图
+                    ctx.drawImage(img, 0, 0, scaledWidth, scaledHeight)
+                  } else {
+                    // 有 displayScale：逐帧绘制，应用缩放并居中
+                    const srcFrameW = img.width / frameCount
+                    const srcFrameH = img.height
+                    const drawSize = renderSize * scale
+                    const offsetX = (renderSize - drawSize) / 2
+                    const offsetY = (renderSize - drawSize) / 2
+
+                    for (let f = 0; f < frameCount; f++) {
+                      ctx.save()
+                      ctx.translate(f * renderSize + offsetX, offsetY)
+                      ctx.drawImage(
+                        img,
+                        f * srcFrameW,
+                        0,
+                        srcFrameW,
+                        srcFrameH, // 源：单帧
+                        0,
+                        0,
+                        drawSize,
+                        drawSize // 目标：缩放后居中
+                      )
+                      ctx.restore()
+                    }
+                  }
+                }
+                scaledImagesRef.current[state] = offscreen
+                resolve()
+              }
+              img.onerror = () => {
+                console.error('Failed to load image:', state)
+                resolve()
+              }
+              img.src = dataUrl
+            })
           })
-        })
-      )
-    }).then(() => {
-      setupAnimator('idle')
-    })
-  }, [manifest, skinDir])
+        )
+      })
+      .then(() => {
+        setupAnimator('idle', m)
+      })
+  }, [])
 
-  // 状态切换时更新动画
-  useEffect(() => {
-    if (petState !== currentStateRef.current) {
-      currentStateRef.current = petState
-      const imageKey = STATE_IMAGE_MAP[petState] || 'idle'
-      setupAnimator(imageKey)
-    }
-  }, [petState])
-
+  // 设置动画器（必须在引用它的 useEffect 之前定义，避免 TDZ）
   const setupAnimator = useCallback(
-    (stateKey: string) => {
-      if (!manifest) return
-      const img = imagesRef.current[stateKey]
-      const animConfig = manifest.animations[stateKey]
-      if (!img || !animConfig) return
+    (stateKey: string, m?: SkinManifest) => {
+      const currentManifest = m || manifest
+      if (!currentManifest) return
+      const scaledCanvas = scaledImagesRef.current[stateKey]
+      const animConfig = currentManifest.animations[stateKey]
+      if (!scaledCanvas || !animConfig) return
 
-      animatorRef.current = new SpriteAnimator(img, {
-        frameSize: manifest.frameSize,
-        ...animConfig
+      const fakeImage = scaledCanvas as unknown as HTMLImageElement
+      animatorRef.current = new SpriteAnimator(fakeImage, {
+        frameSize: { width: PET_RENDER_SIZE, height: PET_RENDER_SIZE },
+        ...animConfig,
       })
 
       // waking 状态播放完毕后自动切换到 idle
@@ -105,7 +183,44 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     [manifest]
   )
 
-  // Canvas 渲染循环
+  // 处理皮肤切换（含过渡动画）
+  useEffect(() => {
+    if (!manifest || !skinDir) return
+
+    const t = transitionRef.current
+
+    if (t.phase === 'none') {
+      // 首次加载：直接加载，不做过渡
+      if (Object.keys(scaledImagesRef.current).length === 0) {
+        loadSkinImages(manifest, skinDir)
+        t.alpha = 1
+      } else {
+        // 皮肤目录/manifest 变化 → 触发过渡
+        t.pendingManifest = manifest
+        t.pendingSkinDir = skinDir
+        t.phase = 'fade-out'
+        t.phaseStart = performance.now()
+      }
+    }
+    // 如果正在过渡中，更新 pending 目标
+    else {
+      t.pendingManifest = manifest
+      t.pendingSkinDir = skinDir
+    }
+  }, [manifest, skinDir, loadSkinImages])
+
+  // 状态切换时更新动画
+  useEffect(() => {
+    if (petState !== currentStateRef.current) {
+      currentStateRef.current = petState
+      const imageKey = STATE_IMAGE_MAP[petState] || 'idle'
+      setupAnimator(imageKey)
+    }
+    // 同步粒子系统状态
+    particleRef.current?.setState(petState)
+  }, [petState, setupAnimator])
+
+  // Canvas 渲染循环（整合精灵 + 粒子 + 阴影 + 光晕 + 过渡）
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -121,16 +236,51 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     canvas.style.width = `${logicalSize}px`
     canvas.style.height = `${logicalSize}px`
     ctx.scale(dpr, dpr)
-    ctx.imageSmoothingEnabled = false // 像素风关键：关闭平滑
+
+    // HD 皮肤使用双线性插值，像素皮肤使用最近邻
+    const hd = isHDSkin(manifest)
+    ctx.imageSmoothingEnabled = hd
+    if (hd) {
+      ctx.imageSmoothingQuality = 'high'
+    }
+
+    // 动态设置 canvas CSS image-rendering
+    if (canvas) {
+      canvas.style.imageRendering = hd ? 'auto' : 'pixelated'
+    }
 
     // 窗口可见性监听
     const onVisibility = (): void => {
       visibleRef.current = !document.hidden
       if (visibleRef.current && !rafIdRef.current) {
+        transitionRef.current.lastFrame = performance.now()
         rafIdRef.current = requestAnimationFrame(render)
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
+
+    // 窗口焦点监听 — 失焦时降频，节省 CPU/GPU
+    const onFocus = (): void => {
+      isWindowFocusedRef.current = true
+    }
+    const onBlur = (): void => {
+      isWindowFocusedRef.current = false
+    }
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('blur', onBlur)
+
+    const particles = particleRef.current
+    if (particles) particles.setSize(logicalSize, logicalSize)
+
+    // 根据状态和焦点决定目标帧率
+    // idle/sleeping 降频到 15fps（脉动缓慢，用户感知不到差异）
+    // 失焦时降到 5fps（宠物不在用户视线焦点）
+    const getTargetFps = (state: PetState): number => {
+      if (!isWindowFocusedRef.current) return 5
+      if (state === 'sleeping') return 10
+      if (state === 'idle') return 15
+      return 60
+    }
 
     const render = (time: number): void => {
       if (!visibleRef.current) {
@@ -138,10 +288,99 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
         return
       }
 
+      // 帧率控制：根据状态决定是否跳过本帧渲染
+      const targetFps = getTargetFps(currentStateRef.current)
+      const minInterval = 1000 / targetFps
+      if (time - lastRenderTimeRef.current < minInterval) {
+        rafIdRef.current = requestAnimationFrame(render)
+        return
+      }
+      lastRenderTimeRef.current = time
+
+      const t = transitionRef.current
+      const delta = t.lastFrame ? time - t.lastFrame : 16
+      t.lastFrame = time
+
+      // --- 过渡动画更新 ---
+      if (t.phase === 'fade-out') {
+        const elapsed = time - t.phaseStart
+        t.alpha = Math.max(0, 1 - elapsed / TRANSITION_FADE_OUT)
+        if (elapsed >= TRANSITION_FADE_OUT) {
+          t.alpha = 0
+          // 在完全透明时加载新皮肤
+          if (t.pendingManifest && t.pendingSkinDir) {
+            const loadManifest = t.pendingManifest
+            const loadDir = t.pendingSkinDir
+            t.pendingManifest = null
+            t.pendingSkinDir = ''
+            loadSkinImages(loadManifest, loadDir).then(() => {
+              // 加载完毕后检查：如果期间又有新皮肤请求，继续加载最新的
+              if (t.pendingManifest && t.pendingSkinDir) {
+                const nextManifest = t.pendingManifest
+                const nextDir = t.pendingSkinDir
+                t.pendingManifest = null
+                t.pendingSkinDir = ''
+                loadSkinImages(nextManifest, nextDir).then(() => {
+                  t.phase = 'fade-in'
+                  t.phaseStart = performance.now()
+                })
+              } else {
+                t.phase = 'fade-in'
+                t.phaseStart = performance.now()
+              }
+            })
+          } else {
+            t.phase = 'fade-in'
+            t.phaseStart = performance.now()
+          }
+        }
+      } else if (t.phase === 'fade-in') {
+        const elapsed = time - t.phaseStart
+        t.alpha = Math.min(1, elapsed / TRANSITION_FADE_IN)
+        if (elapsed >= TRANSITION_FADE_IN) {
+          t.alpha = 1
+          t.phase = 'none'
+        }
+      }
+
+      // --- 粒子更新 ---
+      if (particles) particles.update(Math.min(delta, 100))
+
+      // --- 渲染 ---
+      ctx.clearRect(0, 0, logicalSize, logicalSize)
+
+      const petAlpha = t.alpha
+      const state = currentStateRef.current
+
+      // 1) 状态环境光晕层：在宠物背后渲染柔和彩色光晕
+      if (petAlpha > 0.05) {
+        drawStateGlow(ctx, logicalSize, petAlpha, state, time)
+      }
+
+      // 2) 阴影层：宠物下方柔和椭圆影
+      if (petAlpha > 0.05) {
+        drawShadow(ctx, logicalSize, petAlpha, state, time)
+      }
+
+      // 3) 精灵层：当前帧
+      // 注意：不能使用 needsRedraw 跳过绘制 — 因为前面 clearRect 已清空 canvas,
+      // 且光晕/阴影每帧都重绘(有脉动动画),精灵也必须每帧绘制,否则会闪烁
       const animator = animatorRef.current
-      if (animator) {
+      if (animator && petAlpha > 0.01) {
         const frame = animator.tick(time)
-        ctx.clearRect(0, 0, logicalSize, logicalSize)
+
+        ctx.save()
+        ctx.globalAlpha = petAlpha
+
+        // 轻微呼吸感：根据时间做微妙的缩放呼吸
+        const breathe = 1 + Math.sin(time * 0.002) * 0.008
+        if (Math.abs(breathe - 1) > 0.001) {
+          const center = logicalSize / 2
+          ctx.translate(center, center)
+          ctx.scale(breathe, breathe)
+          ctx.translate(-center, -center)
+        }
+
         ctx.drawImage(
           animator.currentImage,
           frame.sx,
@@ -153,18 +392,32 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
           logicalSize,
           logicalSize
         )
+
+        ctx.restore()
+        animator.markRendered()
+      }
+
+      // 4) 粒子层：渲染在精灵之上
+      if (petAlpha > 0.3 && particles) {
+        ctx.save()
+        ctx.globalAlpha = petAlpha
+        particles.render(ctx)
+        ctx.restore()
       }
 
       rafIdRef.current = requestAnimationFrame(render)
     }
 
+    transitionRef.current.lastFrame = performance.now()
     rafIdRef.current = requestAnimationFrame(render)
 
     return () => {
       cancelAnimationFrame(rafIdRef.current)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('blur', onBlur)
     }
-  }, [])
+  }, [loadSkinImages])
 
   // 右键菜单
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -179,7 +432,6 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
 
   // 点击互动：触发 happy 动画
   const handleClick = useCallback((e: React.MouseEvent) => {
-    // 只在角色不透明区域响应
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
@@ -187,12 +439,14 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     const y = e.clientY - rect.top
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    const pixel = ctx.getImageData(x, y, 1, 1).data
+    // getImageData 使用设备像素坐标，需要乘以 DPR
+    const dpr = dprRef.current
+    const pixel = ctx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
     if (pixel[3] > 0) {
-      // 点击在角色上 → 触发 happy 动画
       useAppStore.getState().setPetState('happy')
-      // 动画结束后恢复
-      setTimeout(() => {
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current)
+      clickTimerRef.current = setTimeout(() => {
+        clickTimerRef.current = null
         useAppStore.getState().setPetState('idle')
       }, 2000)
     }
@@ -204,10 +458,110 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
       className="pet-canvas"
       onClick={handleClick}
       onMouseDown={onMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
     />
   )
+}
+
+/**
+ * 各状态的环境光晕颜色 (HSL)
+ */
+const STATE_GLOW_COLORS: Record<string, { h: number; s: number; l: number }> = {
+  idle: { h: 45, s: 80, l: 70 },
+  working: { h: 210, s: 80, l: 65 },
+  happy: { h: 320, s: 85, l: 70 },
+  sleeping: { h: 230, s: 30, l: 50 },
+  error: { h: 0, s: 90, l: 55 },
+  waking: { h: 45, s: 80, l: 70 },
+}
+
+// 缓存光晕和阴影的 gradient（按 state 缓存，避免每帧重建）
+const glowGradientCache = new Map<string, CanvasGradient>()
+const shadowGradientCache = new Map<string, CanvasGradient>()
+
+/**
+ * 宠物背后的状态环境光晕 — 柔和的彩色辉光，随时间微妙脉动
+ */
+function drawStateGlow(
+  ctx: CanvasRenderingContext2D,
+  canvasSize: number,
+  alpha: number,
+  state: PetState,
+  time: number
+): void {
+  const glow = STATE_GLOW_COLORS[state] || STATE_GLOW_COLORS.idle
+  const cx = canvasSize / 2
+  const cy = canvasSize * 0.48
+  // 光晕半径随时间微妙脉动
+  const pulse = 1 + Math.sin(time * 0.0015) * 0.06
+  const radius = canvasSize * 0.42 * pulse
+
+  ctx.save()
+  ctx.globalAlpha = alpha * 0.12
+
+  // 使用缓存的 gradient（按 state 缓存，半径用平均值避免每帧重建）
+  let grad = glowGradientCache.get(state)
+  if (!grad) {
+    const baseRadius = canvasSize * 0.42
+    grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRadius)
+    grad.addColorStop(0, `hsla(${glow.h}, ${glow.s}%, ${glow.l}%, 0.6)`)
+    grad.addColorStop(0.5, `hsla(${glow.h}, ${glow.s}%, ${glow.l}%, 0.2)`)
+    grad.addColorStop(1, `hsla(${glow.h}, ${glow.s}%, ${glow.l}%, 0)`)
+    glowGradientCache.set(state, grad)
+  }
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.fillStyle = grad
+  ctx.fill()
+  ctx.restore()
+}
+
+/**
+ * 宠物下方的柔和阴影 — 根据状态微调颜色
+ */
+function drawShadow(
+  ctx: CanvasRenderingContext2D,
+  canvasSize: number,
+  alpha: number,
+  state: PetState,
+  time: number
+): void {
+  ctx.save()
+  const cx = canvasSize / 2
+  const cy = canvasSize * 0.88
+  const rx = canvasSize * 0.32
+  const ry = canvasSize * 0.06
+
+  // 阴影微妙脉动
+  const pulse = 1 + Math.sin(time * 0.002) * 0.04
+  ctx.globalAlpha = alpha * 0.25
+
+  // 使用缓存的 shadow gradient（按 state 缓存）
+  let grad = shadowGradientCache.get(state)
+  if (!grad) {
+    let shadowColor = 'rgba(0, 0, 0, 0.45)'
+    let shadowEdge = 'rgba(0, 0, 0, 0.15)'
+    if (state === 'error') {
+      shadowColor = 'rgba(80, 0, 0, 0.4)'
+      shadowEdge = 'rgba(60, 0, 0, 0.12)'
+    } else if (state === 'happy') {
+      shadowColor = 'rgba(40, 10, 40, 0.35)'
+      shadowEdge = 'rgba(30, 5, 30, 0.1)'
+    }
+
+    const baseRx = canvasSize * 0.32
+    grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRx)
+    grad.addColorStop(0, shadowColor)
+    grad.addColorStop(0.6, shadowEdge)
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)')
+    shadowGradientCache.set(state, grad)
+  }
+
+  ctx.beginPath()
+  ctx.ellipse(cx, cy, rx * pulse, ry, 0, 0, Math.PI * 2)
+  ctx.fillStyle = grad
+  ctx.fill()
+  ctx.restore()
 }

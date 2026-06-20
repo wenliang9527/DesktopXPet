@@ -1,0 +1,29 @@
+# Prettier 配置 - 代码格式化
+# 详见 https://prettier.io/docs/options
+
+# 单行宽度
+printWidth: 100
+
+# 缩进
+tabWidth: 2
+useTabs: false
+
+# 分号
+semi: false
+
+# 引号
+singleQuote: true
+
+# 尾随逗号(es5: 数组/对象/参数最后一项加逗号)
+trailingComma: 'es5'
+
+# 箭头函数参数括号(always: 总是加括号)
+arrowParens: 'always'
+
+# 换行符
+endOfLine: 'lf'
+
+# JSX
+jsxSingleQuote: false
+bracketSameLine: false
+bracketSpacing: true

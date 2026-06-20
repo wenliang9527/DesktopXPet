@@ -1,12 +1,13 @@
 # DesktopXPet Monitor
 
-Monitor VS Code / Cursor editor events and push status to [DesktopXPet](https://github.com/DesktopXPet) in real time.
+Monitor VS Code / Cursor / Trae / Trae SOLO CN editor events and push status to [DesktopXPet](https://github.com/DesktopXPet) in real time.
 
 ## Features
 
 - **File Save Detection** — Pushes `status=working` when you save a file
 - **Active Editor Tracking** — Reports current file, line number, and language
 - **Idle Detection** — Sends `status=idle` after configurable timeout of inactivity
+- **Trae AI Detection** — Detects Trae / Trae SOLO CN AI Chat and Builder activity
 - **Status Bar Indicator** — Shows connection status at a glance
 - **Auto-connect on Startup** — Reads `~/.xpet/config.json` for token and port
 

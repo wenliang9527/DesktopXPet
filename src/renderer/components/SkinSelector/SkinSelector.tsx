@@ -1,39 +1,68 @@
 import { useState, useEffect } from 'react'
 import { useAppStore } from '../../stores/appStore'
+import type { SkinManifest } from '@shared/types'
+import SkinPreviewCanvas from './SkinPreviewCanvas'
 
 interface SkinItem {
   name: string
   path: string
   previewUrl?: string
-  manifest?: any
+  manifest?: SkinManifest
 }
 
 /**
  * 皮肤选择器 UI — 浏览、预览、切换皮肤
+ * 支持悬停动画预览 + 音效试听
  */
 export default function SkinSelector() {
   const [skins, setSkins] = useState<SkinItem[]>([])
+  const [hoveredSkin, setHoveredSkin] = useState<string | null>(null)
   const currentSkin = useAppStore((s) => s.currentSkin)
 
   useEffect(() => {
+    let cancelled = false
+    const loadSkins = async () => {
+      try {
+        const list = await window.desktopXPet.getSkinList()
+        if (cancelled) return
+        const withPreview = await Promise.all(
+          list.map(async (skin: SkinItem) => {
+            const previewPath = `${skin.path.replace(/\\/g, '/')}/preview.png`
+            const dataUrl = await window.desktopXPet.readSkinImage(previewPath)
+            return { ...skin, previewUrl: dataUrl || undefined }
+          })
+        )
+        if (cancelled) return
+        setSkins(withPreview)
+      } catch {
+        // 忽略加载失败
+      }
+    }
     loadSkins()
+
+    // 监听皮肤列表变更(用户通过右键菜单/托盘刷新皮肤后),重新加载
+    const cleanup = window.desktopXPet.onSkinsChanged(() => {
+      loadSkins()
+    })
+
+    return () => {
+      cancelled = true
+      cleanup()
+    }
   }, [])
 
-  const loadSkins = async () => {
-    const list = await window.desktopXPet.getSkinList()
-    const withPreview = await Promise.all(
-      list.map(async (skin: any) => {
-        const previewPath = `${skin.path.replace(/\\/g, '/')}/preview.png`
-        const dataUrl = await window.desktopXPet.readSkinImage(previewPath)
-        return { ...skin, previewUrl: dataUrl || undefined }
-      })
-    )
-    setSkins(withPreview)
+  const handleSwitch = async (name: string) => {
+    try {
+      await window.desktopXPet.switchSkin(name)
+      useAppStore.getState().setCurrentSkin(name)
+    } catch {
+      // 忽略切换失败
+    }
   }
 
-  const handleSwitch = async (name: string) => {
-    await window.desktopXPet.switchSkin(name)
-    useAppStore.getState().setCurrentSkin(name)
+  const handlePlaySound = (e: React.MouseEvent, soundName: string): void => {
+    e.stopPropagation()
+    window.desktopXPet.playSound(soundName)
   }
 
   return (
@@ -45,9 +74,14 @@ export default function SkinSelector() {
             key={skin.name}
             className={`skin-card ${currentSkin === skin.name ? 'active' : ''}`}
             onClick={() => handleSwitch(skin.name)}
+            onMouseEnter={() => setHoveredSkin(skin.name)}
+            onMouseLeave={() => setHoveredSkin(null)}
           >
             <div className="skin-preview">
-              {skin.previewUrl ? (
+              {/* 悬停时显示动画预览,否则显示静态预览图 */}
+              {hoveredSkin === skin.name && skin.manifest ? (
+                <SkinPreviewCanvas skinPath={skin.path} manifest={skin.manifest} size={80} />
+              ) : skin.previewUrl ? (
                 <img src={skin.previewUrl} alt={skin.name} />
               ) : (
                 <div className="skin-preview-placeholder">🎨</div>
@@ -55,6 +89,23 @@ export default function SkinSelector() {
             </div>
             <div className="skin-name">{skin.name}</div>
             {currentSkin === skin.name && <div className="skin-badge">当前</div>}
+            {/* 音效试听按钮 */}
+            <div className="skin-actions">
+              <button
+                className="skin-sound-btn"
+                title="试听点击音效"
+                onClick={(e) => handlePlaySound(e, 'click')}
+              >
+                🔊
+              </button>
+              <button
+                className="skin-sound-btn"
+                title="试听完成音效"
+                onClick={(e) => handlePlaySound(e, 'complete')}
+              >
+                ✅
+              </button>
+            </div>
           </div>
         ))}
         {skins.length === 0 && <div className="empty-state">暂无可用皮肤</div>}

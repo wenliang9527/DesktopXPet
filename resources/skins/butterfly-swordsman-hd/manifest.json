@@ -1,0 +1,39 @@
+{
+  "name": "蝴蝶剑士 Chibi HD (Butterfly Swordsman Chibi HD)",
+  "author": "DesktopXPet",
+  "version": "3.0.0",
+  "preview": "preview.png",
+  "description": "Chibi anime-style Shinobu swordswoman — AI-generated HD sprites v3",
+  "frameSize": {
+    "width": 384,
+    "height": 384
+  },
+  "displayScale": 1.2,
+  "animations": {
+    "idle": {
+      "frames": 12,
+      "fps": 6,
+      "loop": true
+    },
+    "working": {
+      "frames": 12,
+      "fps": 10,
+      "loop": true
+    },
+    "happy": {
+      "frames": 12,
+      "fps": 8,
+      "loop": true
+    },
+    "sleeping": {
+      "frames": 12,
+      "fps": 3,
+      "loop": true
+    },
+    "error": {
+      "frames": 12,
+      "fps": 6,
+      "loop": true
+    }
+  }
+}

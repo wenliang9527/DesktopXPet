@@ -1,4 +1,5 @@
-import log from 'electron-log/main'
+import { createLogger } from '../utils/logger'
+const log = createLogger('GitHubPlugin')
 import type { MonitorPlugin, MonitorStatus } from '@shared/types'
 
 /**
@@ -24,7 +25,7 @@ export class GitHubPlugin implements MonitorPlugin {
         tool: 'GitHub',
         status: 'idle',
         summary: 'GitHub 未配置',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     }
 
@@ -38,8 +39,8 @@ export class GitHubPlugin implements MonitorPlugin {
           headers: {
             Authorization: `Bearer ${this.token}`,
             Accept: 'application/vnd.github+json',
-            'User-Agent': 'DesktopXPet'
-          }
+            'User-Agent': 'DesktopXPet',
+          },
         }
       )
 
@@ -58,8 +59,8 @@ export class GitHubPlugin implements MonitorPlugin {
           headers: {
             Authorization: `Bearer ${this.token}`,
             Accept: 'application/vnd.github+json',
-            'User-Agent': 'DesktopXPet'
-          }
+            'User-Agent': 'DesktopXPet',
+          },
         }
       )
 
@@ -75,7 +76,7 @@ export class GitHubPlugin implements MonitorPlugin {
         status: activityScore > 0 ? 'working' : 'idle',
         summary: `今日 ${todayCommits} 次提交, ${openPRs} 个开放 PR`,
         details: { commits: todayCommits, openPRs },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     } catch (err) {
       log.warn('GitHub plugin fetch failed:', err)
@@ -83,7 +84,7 @@ export class GitHubPlugin implements MonitorPlugin {
         tool: 'GitHub',
         status: 'error',
         summary: 'GitHub API 请求失败',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     }
   }

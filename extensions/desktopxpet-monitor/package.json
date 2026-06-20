@@ -1,8 +1,8 @@
 {
   "name": "desktopxpet-monitor",
   "displayName": "DesktopXPet Monitor",
-  "description": "Monitor VS Code/Cursor editor events and push status to DesktopXPet",
-  "version": "0.1.0",
+  "description": "Monitor editor events and push status to DesktopXPet. Supports VS Code, Cursor, Trae and any VS Code-based IDE. Trae AI status detection included.",
+  "version": "0.3.0",
   "publisher": "DesktopXPet",
   "engines": {
     "vscode": "^1.80.0"
@@ -37,6 +37,16 @@
           "type": "boolean",
           "default": true,
           "description": "Enable or disable monitoring"
+        },
+        "desktopxpet-monitor.toolName": {
+          "type": "string",
+          "default": "auto",
+          "description": "Tool name reported to DesktopXPet. Use 'auto' to detect IDE automatically (cursor/trae/vscode), or set a custom name like 'claude-code'."
+        },
+        "desktopxpet-monitor.traeAIMonitor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Trae AI status detection (chat/building mode). Only effective when running in Trae IDE."
         }
       }
     },
@@ -48,6 +58,10 @@
       {
         "command": "desktopxpet-monitor.status",
         "title": "Show DesktopXPet Status"
+      },
+      {
+        "command": "desktopxpet-monitor.toggleAI",
+        "title": "Toggle Trae AI Monitor"
       }
     ]
   },

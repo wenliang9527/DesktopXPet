@@ -8,6 +8,7 @@
     "width": 128,
     "height": 128
   },
+  "displayScale": 0.8,
   "animations": {
     "idle": {
       "frames": 4,

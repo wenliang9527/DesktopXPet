@@ -288,7 +288,8 @@ DesktopXPet/
 ├── resources/
 │   ├── skins/                    # 内置皮肤
 │   │   ├── default-cat/          # 默认橘猫
-│   │   └── butterfly-swordsman/  # 蝴蝶剑士
+│   │   ├── butterfly-swordsman/  # 蝴蝶剑士（32×32）
+│   │   └── butterfly-swordsman-hd/ # 蝴蝶剑士 HD（64×64）
 │   ├── icons/                    # 应用图标
 │   │   ├── tray-icon.png         # 32x32 系统托盘图标
 │   │   └── app-icon.png          # 512x512 应用图标
@@ -300,6 +301,7 @@ DesktopXPet/
 ├── tools/                        # 开发辅助工具
 │   ├── generate_sprites.py       # 橘猫皮肤生成脚本
 │   ├── generate_butterfly_sprites.py  # 蝴蝶剑士皮肤生成脚本
+│   ├── generate_butterfly_hd_sprites.py  # 蝴蝶剑士 HD 皮肤生成脚本
 │   └── xpet-cli.ts               # CLI 伴侣工具源码
 │
 └── docs/

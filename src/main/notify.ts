@@ -1,5 +1,6 @@
 import { Notification } from 'electron'
-import log from 'electron-log/main'
+import { createLogger } from './utils/logger'
+const log = createLogger('Notification')
 
 let lastNotificationTime = 0
 const MIN_INTERVAL = 5000 // 最小通知间隔 5 秒
@@ -19,7 +20,7 @@ export function pushNotification(title: string, body: string): void {
         title,
         body,
         silent: false,
-        icon: undefined // 使用应用图标
+        icon: undefined, // 使用应用图标
       })
       notification.show()
       lastNotificationTime = now

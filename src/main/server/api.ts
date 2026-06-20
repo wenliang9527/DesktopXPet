@@ -1,6 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import crypto from 'crypto'
-import log from 'electron-log/main'
+import { createLogger } from '../utils/logger'
+const log = createLogger('PetAPIServer')
 import { API_PORT } from '@shared/constants'
 import type { PushStatus } from '@shared/types'
 
@@ -56,8 +57,13 @@ export class PetAPIServer {
       log.info(`DesktopXPet API listening on http://127.0.0.1:${this.port}`)
     })
 
-    this.server.on('error', (err: any) => {
+    this.server.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
+        // 端口冲突重试上限保护
+        if (this.port >= API_PORT + 10) {
+          log.error(`Port ${API_PORT}-${this.port} all in use, giving up`)
+          return
+        }
         log.warn(`Port ${this.port} is in use, trying ${this.port + 1}`)
         this.port++
         this.server!.listen(this.port, '127.0.0.1')
@@ -86,11 +92,31 @@ export class PetAPIServer {
     req.on('end', () => {
       if (oversized) return
       try {
-        const data: PushStatus = JSON.parse(body)
-        this.onStatus?.(data)
+        const data = JSON.parse(body)
+        // 输入验证：确保必要字段存在且类型正确
+        if (typeof data.tool !== 'string' || typeof data.status !== 'string') {
+          res.writeHead(400)
+          res.end(JSON.stringify({ error: 'Missing required fields: tool, status' }))
+          return
+        }
+        const validStatuses = ['idle', 'working', 'completed', 'error']
+        if (!validStatuses.includes(data.status)) {
+          res.writeHead(400)
+          res.end(
+            JSON.stringify({ error: `Invalid status, must be one of: ${validStatuses.join(', ')}` })
+          )
+          return
+        }
+        const validated: PushStatus = {
+          tool: String(data.tool).slice(0, 100),
+          status: data.status,
+          summary: data.summary ? String(data.summary).slice(0, 500) : '',
+          details: data.details,
+        }
+        this.onStatus?.(validated)
         res.writeHead(200)
         res.end(JSON.stringify({ ok: true }))
-        log.info(`Push received: ${data.tool} = ${data.status}`)
+        log.info(`Push received: ${validated.tool} = ${validated.status}`)
       } catch {
         res.writeHead(400)
         res.end(JSON.stringify({ error: 'Invalid JSON' }))

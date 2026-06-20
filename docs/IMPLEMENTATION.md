@@ -1188,11 +1188,12 @@ xpet skin butterfly-swordsman
 
 ```
 resources/skins/
-├── default-cat/          # 默认橘猫
-├── butterfly-swordsman/  # 蝴蝶剑士
-├── pixel-robot/          # 像素机器人
-├── space-cat/            # 太空猫（未来制作）
-└── forest-spirit/        # 森林精灵（未来制作）
+├── default-cat/              # 默认橘猫
+├── butterfly-swordsman/      # 蝴蝶剑士（32×32 标准版）
+├── butterfly-swordsman-hd/   # 蝴蝶剑士 HD（64×64 高清版）
+├── pixel-robot/              # 像素机器人
+├── space-cat/                # 太空猫（未来制作）
+└── forest-spirit/            # 森林精灵（未来制作）
 ```
 
 **2. 本地自定义皮肤目录**
@@ -1716,7 +1717,7 @@ function initAutoUpdater() {
 像素风精灵图有三个获取途径：
 
 **方案 A — 程序化生成（项目当前方式）：**
-使用 Python + Pillow 编写生成脚本，逐像素绘制角色。项目已有两套皮肤的生成脚本（`generate_sprites.py` 和 `generate_butterfly_sprites.py`）可作为模板。详见 [SKIN_GUIDE.md](./SKIN_GUIDE.md) 中的完整指南和代码模板。
+使用 Python + Pillow 编写生成脚本，逐像素绘制角色。项目已有三套皮肤的生成脚本（`generate_sprites.py`、`generate_butterfly_sprites.py` 和 `generate_butterfly_hd_sprites.py`）可作为模板。详见 [SKIN_GUIDE.md](./SKIN_GUIDE.md) 中的完整指南和代码模板。
 
 **方案 B — 手绘像素画：**
 使用 Aseprite（推荐）、LibreSprite 或 Piskel 从零绘制。动画功能完善，可导出横排精灵图。最耗时但完全原创，适合精细控制。

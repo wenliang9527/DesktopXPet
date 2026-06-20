@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface SettingsData {
   pet: { scale: number; alwaysOnTop: boolean; clickSound: boolean }
@@ -13,21 +13,65 @@ interface SettingsData {
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const initialRef = useRef<SettingsData | null>(null)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    loadSettings()
+    let cancelled = false
+    window.desktopXPet
+      .getSettings()
+      .then((data) => {
+        if (cancelled) return
+        // store 返回的是 Partial<AppSettings>，这里转换为 SettingsData（确保字段存在）
+        const settings = data as unknown as SettingsData
+        setSettings(settings)
+        initialRef.current = JSON.parse(JSON.stringify(settings))
+      })
+      .catch(() => {
+        if (!cancelled) setError('加载设置失败')
+      })
+    return () => {
+      cancelled = true
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    }
   }, [])
-
-  const loadSettings = async () => {
-    const data = await window.desktopXPet.getSettings()
-    setSettings(data)
-  }
 
   const handleSave = async () => {
     if (!settings) return
-    await window.desktopXPet.setSettings(settings)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaving(true)
+    setError(null)
+    try {
+      // 只发送变更的键值对，减少磁盘 IO
+      const initial = initialRef.current
+      if (initial) {
+        await window.desktopXPet.setSettings(settings as unknown as Record<string, unknown>)
+      } else {
+        const changes: Record<string, unknown> = {}
+        for (const section of ['pet', 'behavior', 'monitor', 'general'] as const) {
+          const initSec = (initial as unknown as Record<string, Record<string, unknown>>)[section]
+          const curSec = (settings as unknown as Record<string, Record<string, unknown>>)[section]
+          for (const key of Object.keys(initSec)) {
+            if (initSec[key] !== curSec[key]) {
+              changes[`${section}.${key}`] = curSec[key]
+            }
+          }
+        }
+        if (Object.keys(changes).length > 0) {
+          await window.desktopXPet.setSettings(changes)
+          // 更新初始值引用
+          initialRef.current = JSON.parse(JSON.stringify(settings))
+        }
+      }
+      setSaved(true)
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setError('保存失败: ' + (err instanceof Error ? err.message : String(err)))
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!settings) return <div className="loading">加载中...</div>
@@ -46,7 +90,7 @@ export default function Settings() {
             onChange={(e) =>
               setSettings({
                 ...settings,
-                pet: { ...settings.pet, alwaysOnTop: e.target.checked }
+                pet: { ...settings.pet, alwaysOnTop: e.target.checked },
               })
             }
           />
@@ -59,7 +103,7 @@ export default function Settings() {
             onChange={(e) =>
               setSettings({
                 ...settings,
-                pet: { ...settings.pet, clickSound: e.target.checked }
+                pet: { ...settings.pet, clickSound: e.target.checked },
               })
             }
           />
@@ -80,8 +124,8 @@ export default function Settings() {
                 ...settings,
                 behavior: {
                   ...settings.behavior,
-                  sleepAfterMinutes: parseInt(e.target.value) || 15
-                }
+                  sleepAfterMinutes: parseInt(e.target.value) || 15,
+                },
               })
             }
           />
@@ -94,7 +138,7 @@ export default function Settings() {
             onChange={(e) =>
               setSettings({
                 ...settings,
-                behavior: { ...settings.behavior, showNotifications: e.target.checked }
+                behavior: { ...settings.behavior, showNotifications: e.target.checked },
               })
             }
           />
@@ -107,7 +151,7 @@ export default function Settings() {
             onChange={(e) =>
               setSettings({
                 ...settings,
-                behavior: { ...settings.behavior, showBubble: e.target.checked }
+                behavior: { ...settings.behavior, showBubble: e.target.checked },
               })
             }
           />
@@ -128,8 +172,8 @@ export default function Settings() {
                 ...settings,
                 monitor: {
                   ...settings.monitor,
-                  defaultPollInterval: (parseInt(e.target.value) || 30) * 1000
-                }
+                  defaultPollInterval: (parseInt(e.target.value) || 30) * 1000,
+                },
               })
             }
           />
@@ -146,16 +190,17 @@ export default function Settings() {
             onChange={(e) =>
               setSettings({
                 ...settings,
-                general: { ...settings.general, autoStart: e.target.checked }
+                general: { ...settings.general, autoStart: e.target.checked },
               })
             }
           />
         </label>
       </div>
 
-      <button className="save-btn" onClick={handleSave}>
-        {saved ? '✅ 已保存' : '💾 保存设置'}
+      <button className="save-btn" onClick={handleSave} disabled={saving}>
+        {saving ? ' 保存中...' : saved ? '✅ 已保存' : '💾 保存设置'}
       </button>
+      {error && <div className="settings-error">{error}</div>}
     </div>
   )
 }

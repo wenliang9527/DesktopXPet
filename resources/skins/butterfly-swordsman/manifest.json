@@ -1,13 +1,14 @@
 {
   "name": "蝴蝶剑士 (Butterfly Swordsman)",
   "author": "DesktopXPet",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "preview": "preview.png",
-  "description": "A graceful swordswoman with butterfly motifs, inspired by anime art style",
+  "description": "Shinobu-inspired swordswoman — optimized v2 with dynamic sword action",
   "frameSize": {
-    "width": 128,
-    "height": 128
+    "width": 64,
+    "height": 64
   },
+  "displayScale": 0.8,
   "animations": {
     "idle": {
       "frames": 4,

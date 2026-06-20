@@ -1,5 +1,6 @@
 import os from 'os'
-import log from 'electron-log/main'
+import { createLogger } from '../utils/logger'
+const log = createLogger('SystemMonitorPlugin')
 import type { MonitorPlugin, MonitorStatus } from '@shared/types'
 
 /**
@@ -28,9 +29,9 @@ export class SystemMonitorPlugin implements MonitorPlugin {
           memory: memPercent,
           uptime: os.uptime(),
           platform: os.platform(),
-          arch: os.arch()
+          arch: os.arch(),
         },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     } catch (err) {
       log.warn('System monitor fetch failed:', err)
@@ -38,7 +39,7 @@ export class SystemMonitorPlugin implements MonitorPlugin {
         tool: 'System',
         status: 'error',
         summary: '系统监控获取失败',
-        timestamp: Date.now()
+        timestamp: Date.now(),
       }
     }
   }

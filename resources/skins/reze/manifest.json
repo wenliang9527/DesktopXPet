@@ -1,0 +1,39 @@
+{
+  "name": "蕾塞 Reze (Chainsaw Man)",
+  "author": "DesktopXPet",
+  "version": "1.0.0",
+  "preview": "preview.png",
+  "description": "Chibi anime Reze from Chainsaw Man — bomb girl with red flower HD sprites",
+  "frameSize": {
+    "width": 384,
+    "height": 384
+  },
+  "displayScale": 1.2,
+  "animations": {
+    "idle": {
+      "frames": 12,
+      "fps": 6,
+      "loop": true
+    },
+    "working": {
+      "frames": 12,
+      "fps": 10,
+      "loop": true
+    },
+    "happy": {
+      "frames": 12,
+      "fps": 8,
+      "loop": true
+    },
+    "sleeping": {
+      "frames": 12,
+      "fps": 3,
+      "loop": true
+    },
+    "error": {
+      "frames": 12,
+      "fps": 6,
+      "loop": true
+    }
+  }
+}

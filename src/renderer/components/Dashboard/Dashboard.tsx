@@ -1,6 +1,9 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Settings from '../Settings/Settings'
 import SkinSelector from '../SkinSelector/SkinSelector'
+import PomodoroTimer from '../PomodoroTimer/PomodoroTimer'
+import { useAppStore } from '../../stores/appStore'
+import { getToolIcon, getStatusColor, getStatusLabel } from '../../shared/tool-utils'
 import type { AggregatedStatus, MonitorStatus, PetState } from '@shared/types'
 
 interface HistoryEntry {
@@ -22,28 +25,7 @@ const STATE_HEIGHTS: Record<string, number> = {
   working: 80,
   happy: 60,
   error: 100,
-  sleeping: 15
-}
-
-const TOOL_ICONS: Record<string, string> = {
-  System: '🖥️',
-  GitHub: '🐙',
-  Ollama: '🤖',
-  'claude-code': '🧠',
-  cursor: '📝',
-  opencode: '⚡',
-  copilot: '🤖',
-  'chatgpt': '💬',
-  default: '🔧'
-}
-
-function getToolIcon(name: string): string {
-  if (TOOL_ICONS[name]) return TOOL_ICONS[name]
-  const lower = name.toLowerCase()
-  for (const [key, icon] of Object.entries(TOOL_ICONS)) {
-    if (lower.includes(key.toLowerCase())) return icon
-  }
-  return TOOL_ICONS.default
+  sleeping: 15,
 }
 
 function timeAgo(date: Date): string {
@@ -63,30 +45,38 @@ export default function Dashboard() {
   const [connectedTools, setConnectedTools] = useState<Map<string, ConnectedTool>>(new Map())
   const toolsRef = useRef<Map<string, ConnectedTool>>(new Map())
 
-  useEffect(() => {
-    window.desktopXPet.getStatusSnapshot().then((snapshot: any) => {
-      setStatus(snapshot)
-      // 用快照初始化已知工具
-      if (snapshot?.tools) {
-        for (const tool of snapshot.tools) {
-          const existing = toolsRef.current.get(tool.tool)
-          if (!existing) {
-            toolsRef.current.set(tool.tool, {
-              name: tool.tool,
-              status: tool.status,
-              summary: tool.summary,
-              lastSeen: new Date(),
-              source: BUILTIN_PLUGINS.includes(tool.tool) ? 'plugin' : 'push',
-              icon: getToolIcon(tool.tool)
-            })
-          }
-        }
-        setConnectedTools(new Map(toolsRef.current))
-      }
-    })
+  // 宠物名称编辑
+  const petName = useAppStore((s) => s.petName)
+  const setPetName = useAppStore((s) => s.setPetName)
+  const [editingName, setEditingName] = useState(false)
+  const [nameInput, setNameInput] = useState('')
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
+  const handleEditName = useCallback(() => {
+    setNameInput(petName)
+    setEditingName(true)
+    setTimeout(() => nameInputRef.current?.focus(), 0)
+  }, [petName])
+
+  const handleSaveName = useCallback(() => {
+    const name = nameInput.trim()
+    if (name) setPetName(name)
+    setEditingName(false)
+  }, [nameInput, setPetName])
+
+  const handleNameKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') handleSaveName()
+      if (e.key === 'Escape') setEditingName(false)
+    },
+    [handleSaveName]
+  )
+
+  useEffect(() => {
+    let cancelled = false
     let lastUpdate = 0
-    window.desktopXPet.onStatusUpdate((newStatus: any) => {
+    const cleanup = window.desktopXPet.onStatusUpdate((newStatus: AggregatedStatus) => {
+      if (cancelled) return
       const ts = Date.now()
       if (ts - lastUpdate < 500) return
       lastUpdate = ts
@@ -109,46 +99,56 @@ export default function Dashboard() {
             summary: tool.summary,
             lastSeen: new Date(),
             source: existing?.source ?? (BUILTIN_PLUGINS.includes(tool.tool) ? 'plugin' : 'push'),
-            icon: getToolIcon(tool.tool)
+            icon: getToolIcon(tool.tool),
           })
         }
         setConnectedTools(new Map(toolsRef.current))
       }
     })
+
+    window.desktopXPet
+      .getStatusSnapshot()
+      .then((snapshot: AggregatedStatus | null) => {
+        if (cancelled || !snapshot) return
+        setStatus(snapshot)
+        // 用快照初始化已知工具
+        if (snapshot.tools) {
+          for (const tool of snapshot.tools) {
+            const existing = toolsRef.current.get(tool.tool)
+            if (!existing) {
+              toolsRef.current.set(tool.tool, {
+                name: tool.tool,
+                status: tool.status,
+                summary: tool.summary,
+                lastSeen: new Date(),
+                source: BUILTIN_PLUGINS.includes(tool.tool) ? 'plugin' : 'push',
+                icon: getToolIcon(tool.tool),
+              })
+            }
+          }
+          setConnectedTools(new Map(toolsRef.current))
+        }
+      })
+      .catch(() => {
+        // 忽略快照获取失败
+      })
+
+    return () => {
+      cancelled = true
+      cleanup?.()
+    }
   }, [])
 
-  const getStatusColor = (s: string): string => {
-    switch (s) {
-      case 'working':
-        return '#4CAF50'
-      case 'error':
-        return '#f44336'
-      case 'completed':
-        return '#2196F3'
-      default:
-        return '#9E9E9E'
-    }
-  }
+  const pluginTools = Array.from(connectedTools.values()).filter((t) => t.source === 'plugin')
+  const pushTools = Array.from(connectedTools.values()).filter((t) => t.source === 'push')
 
-  const getStatusLabel = (s: string): string => {
-    switch (s) {
-      case 'working':
-        return '工作中'
-      case 'error':
-        return '出错'
-      case 'completed':
-        return '已完成'
-      default:
-        return '空闲'
-    }
-  }
-
-  const pluginTools = Array.from(connectedTools.values()).filter(t => t.source === 'plugin')
-  const pushTools = Array.from(connectedTools.values()).filter(t => t.source === 'push')
+  const allTools = Array.from(connectedTools.values())
+  const workingTools = allTools.filter((t) => t.status === 'working')
+  const errorTools = allTools.filter((t) => t.status === 'error')
 
   return (
     <div className="dashboard">
-      <h1 className="dashboard-title">🐾 DesktopXPet 仪表盘</h1>
+      <h1 className="dashboard-title">🐾 {petName} 仪表盘</h1>
 
       <div className="dashboard-summary">
         <div className="summary-card">
@@ -158,18 +158,76 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="summary-card">
-          <div className="card-label">内置插件</div>
-          <div className="card-value">{pluginTools.length}</div>
+          <div className="card-label">工作中</div>
+          <div
+            className="card-value"
+            style={{ color: workingTools.length > 0 ? '#4CAF50' : '#9E9E9E' }}
+          >
+            {workingTools.length}
+          </div>
         </div>
         <div className="summary-card">
-          <div className="card-label">外部接入</div>
-          <div className="card-value">{pushTools.length}</div>
+          <div className="card-label">出错</div>
+          <div
+            className="card-value"
+            style={{ color: errorTools.length > 0 ? '#f44336' : '#9E9E9E' }}
+          >
+            {errorTools.length}
+          </div>
         </div>
         <div className="summary-card">
           <div className="card-label">总计工具</div>
           <div className="card-value">{connectedTools.size}</div>
         </div>
       </div>
+
+      {/* 宠物名称 */}
+      <div className="pet-name-section">
+        <h2 className="section-title">🐾 宠物名称</h2>
+        <div className="pet-name-row">
+          {editingName ? (
+            <>
+              <input
+                ref={nameInputRef}
+                className="pet-name-input"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onBlur={handleSaveName}
+                onKeyDown={handleNameKeyDown}
+              />
+              <button className="pet-name-save-btn" onClick={handleSaveName}>
+                保存
+              </button>
+              <button className="pet-name-cancel-btn" onClick={() => setEditingName(false)}>
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="pet-name-display">{petName}</span>
+              <button className="pet-name-edit-btn" onClick={handleEditName}>
+                编辑
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 并行工作概览 */}
+      {workingTools.length > 0 && (
+        <div className="parallel-overview">
+          <div className="parallel-header">⚡ 并行工作中 ({workingTools.length})</div>
+          <div className="parallel-tools">
+            {workingTools.map((tool) => (
+              <div key={tool.name} className="parallel-tool-chip">
+                <span>{tool.icon}</span>
+                <span className="parallel-tool-name">{tool.name}</span>
+                <span className="parallel-tool-summary">{tool.summary}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {history.length > 0 && (
         <>
@@ -181,9 +239,13 @@ export default function Dashboard() {
                 className="timeline-bar"
                 style={{
                   height: `${STATE_HEIGHTS[entry.petState] || 20}%`,
-                  backgroundColor: getStatusColor(entry.petState)
+                  backgroundColor: getStatusColor(entry.petState),
                 }}
-                data-label={entry.time.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                data-label={entry.time.toLocaleTimeString('zh-CN', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                })}
                 title={`${entry.petState} - ${entry.time.toLocaleTimeString()}`}
               />
             ))}
@@ -243,9 +305,7 @@ export default function Dashboard() {
         )}
 
         {connectedTools.size === 0 && (
-          <div className="empty-state">
-            暂无工具接入。通过 HTTP API 推送状态或启用内置插件。
-          </div>
+          <div className="empty-state">暂无工具接入。通过 HTTP API 推送状态或启用内置插件。</div>
         )}
       </div>
 
@@ -257,7 +317,9 @@ export default function Dashboard() {
             {status.tools.map((tool: MonitorStatus) => (
               <div key={tool.tool} className="tool-card">
                 <div className="tool-card-header">
-                  <span className="tool-card-name">{getToolIcon(tool.tool)} {tool.tool}</span>
+                  <span className="tool-card-name">
+                    {getToolIcon(tool.tool)} {tool.tool}
+                  </span>
                   <span
                     className="tool-card-status"
                     style={{ backgroundColor: getStatusColor(tool.status) }}
@@ -283,6 +345,7 @@ export default function Dashboard() {
       )}
 
       <div className="dashboard-sections">
+        <PomodoroTimer />
         <SkinSelector />
         <Settings />
       </div>

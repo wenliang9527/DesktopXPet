@@ -18,6 +18,8 @@ export interface AggregatedStatus {
   petState: PetState
   tools: MonitorStatus[]
   summary: string
+  // 是否有"新出现"的 completed 事件（用于通知/声音去重，同一 completed 事件只触发一次）
+  newCompleted?: boolean
 }
 
 // Push 推送数据
@@ -52,6 +54,8 @@ export interface SkinManifest {
   description?: string
   frameSize: { width: number; height: number }
   animations: Record<string, AnimationConfig>
+  /** 显示缩放因子 (1.0=原始, >1 放大角色以匹配其他皮肤的视觉大小) */
+  displayScale?: number
 }
 
 // 皮肤数据（加载后）
@@ -77,10 +81,13 @@ export interface AppSettings {
   }
   monitor: {
     defaultPollInterval: number
-    plugins: Record<string, {
-      enabled: boolean
-      config: Record<string, any>
-    }>
+    plugins: Record<
+      string,
+      {
+        enabled: boolean
+        config: Record<string, any>
+      }
+    >
   }
   skin: {
     current: string
@@ -98,6 +105,12 @@ export interface MonitorPlugin {
   name: string
   icon: string
   pollInterval: number
+  /** 可选：最小轮询间隔 */
+  minPollInterval?: number
+  /** 可选：最大轮询间隔 */
+  maxPollInterval?: number
+  /** 可选：根据上次状态动态调整轮询间隔 */
+  adjustPollInterval?(lastStatus: MonitorStatus): number
   init?(config: Record<string, any>): Promise<void>
   fetchStatus(): Promise<MonitorStatus>
   dispose?(): Promise<void>

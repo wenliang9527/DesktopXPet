@@ -18,13 +18,20 @@ export const IPC = {
   SKIN_LIST: 'skin:list',
   SKIN_SWITCH: 'skin:switch',
   SKIN_READ_IMAGE: 'skin:read-image',
+  SKIN_RESCAN: 'skin:rescan',
+  SKIN_OPEN_USER_DIR: 'skin:open-user-dir',
+  SKIN_INSTALL_PACKAGE: 'skin:install-package',
+
+  // 音效管理
+  SOUND_PLAY: 'sound:play',
+  SOUND_RELOAD: 'sound:reload',
+  SOUND_OPEN_USER_DIR: 'sound:open-user-dir',
 
   // 应用控制
   APP_OPEN_DASHBOARD: 'app:open-dashboard',
   APP_QUIT: 'app:quit',
   APP_GET_STORE: 'app:get-store',
   APP_SET_STORE: 'app:set-store',
-
-  // 音效
-  SOUND_PLAY: 'sound:play'
+  APP_SET_PET_NAME: 'app:set-pet-name',
+  APP_GET_PET_NAME: 'app:get-pet-name',
 } as const

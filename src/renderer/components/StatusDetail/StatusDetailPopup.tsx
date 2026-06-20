@@ -1,67 +1,64 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
-import type { AggregatedStatus, MonitorStatus } from '@shared/types'
+import { memo } from 'react'
+import { useAppStore } from '../../stores/appStore'
+import { getToolIcon, getStatusColor } from '../../shared/tool-utils'
+import type { MonitorStatus } from '@shared/types'
+
+function getStatusEmoji(s: string): string {
+  switch (s) {
+    case 'working':
+      return '🔄'
+    case 'error':
+      return '❌'
+    case 'completed':
+      return '✅'
+    default:
+      return '💤'
+  }
+}
 
 /**
- * 悬停详情面板 — hover 时显示各工具详细状态
+ * 悬停详情面板 — 从 appStore.isHovering 控制显示
+ * 由 useClickThrough 同步 hover 状态，不依赖 DOM mouseEnter
+ *
+ * 弹窗定位在宠物上方（bottom: 100%），如果空间不够则显示在下方
  */
-export default function StatusDetailPopup() {
-  const [visible, setVisible] = useState(false)
-  const [status, setStatus] = useState<AggregatedStatus | null>(null)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+function StatusDetailPopupImpl() {
+  const isHovering = useAppStore((s) => s.isHovering)
+  const tools = useAppStore((s) => s.tools)
 
-  const handleMouseLeave = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current)
-    }
-    setVisible(false)
-  }, [])
+  if (!isHovering || tools.length === 0) return null
 
-  useEffect(() => {
-    if (visible) {
-      const interval = setInterval(async () => {
-        const snapshot = await window.desktopXPet.getStatusSnapshot()
-        setStatus(snapshot)
-      }, 2000)
-      return () => clearInterval(interval)
-    }
-    return undefined
-  }, [visible])
-
-  if (!visible || !status) return null
-
-  const getStatusEmoji = (s: string): string => {
-    switch (s) {
-      case 'working':
-        return '🔄'
-      case 'error':
-        return '❌'
-      case 'completed':
-        return '✅'
-      default:
-        return '💤'
-    }
-  }
+  const workingCount = tools.filter((t) => t.status === 'working').length
+  const errorCount = tools.filter((t) => t.status === 'error').length
 
   return (
-    <div
-      className="status-detail-popup"
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={handleMouseLeave}
-    >
-      <div className="popup-header">DesktopXPet 状态详情</div>
-      {status.tools.length === 0 ? (
-        <div className="popup-empty">暂无监控数据</div>
-      ) : (
-        <div className="popup-tools">
-          {status.tools.map((tool: MonitorStatus) => (
-            <div key={tool.tool} className="popup-tool">
-              <span className="tool-status">{getStatusEmoji(tool.status)}</span>
-              <span className="tool-name">{tool.tool}</span>
+    <div className="status-detail-popup">
+      <div className="popup-header">
+        <span>📡 工具状态</span>
+        <span className="popup-count">
+          {workingCount > 0 && <span className="count-working">{workingCount} 工作中</span>}
+          {errorCount > 0 && <span className="count-error">{errorCount} 出错</span>}
+          {workingCount === 0 && errorCount === 0 && <span className="count-idle">全部空闲</span>}
+        </span>
+      </div>
+      <div className="popup-tools">
+        {tools.map((tool: MonitorStatus) => (
+          <div key={tool.tool} className="popup-tool">
+            <span className="tool-icon">{getToolIcon(tool.tool)}</span>
+            <span className="tool-status" style={{ color: getStatusColor(tool.status) }}>
+              {getStatusEmoji(tool.status)}
+            </span>
+            <div className="tool-info">
+              <span className="tool-name" style={{ color: getStatusColor(tool.status) }}>
+                {tool.tool}
+              </span>
               <span className="tool-summary">{tool.summary}</span>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
+
+export default memo(StatusDetailPopupImpl)
