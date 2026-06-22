@@ -80,7 +80,7 @@ function App() {
           // 同一 error 工具集合只播放一次音效（避免持续 error 时重复播放）
           const errorKey = (status.tools || [])
             .filter((t: any) => t.status === 'error')
-            .map((t: any) => t.name)
+            .map((t: any) => t.tool)
             .join(',')
           if (errorKey !== lastErrorKeyRef.current) {
             lastErrorKeyRef.current = errorKey

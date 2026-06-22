@@ -2,13 +2,24 @@
 
 ## 内置皮肤
 
-| 皮肤 | 目录 | 帧尺寸 | 说明 |
-|------|------|--------|------|
-| 橘猫 | `resources/skins/default-cat/` | 128×128 | 默认皮肤，程序化生成的 Q 版猫咪 |
-| 蝴蝶剑士 | `resources/skins/butterfly-swordsman/` | 64×64 | 武侠风格标准版，程序化生成 |
-| 蝴蝶剑士 HD | `resources/skins/butterfly-swordsman-hd/` | 384×384 | 武侠风格 HD 版，AI 辅助生成 |
-| 蕾塞 | `resources/skins/reze/` | 384×384 | 电锯人角色，AI 生成 |
-| 专业团队 | `resources/skins/professional-team/` | 384×384 | 商务人士梗图，AI 生成 |
+| 皮肤 | 目录 | 帧尺寸 | 渲染模式 | 说明 |
+|------|------|--------|---------|------|
+| 橘猫 | `resources/skins/default-cat/` | 128×128 | 像素风 | 默认皮肤，程序化生成的 Q 版猫咪 |
+| 蝴蝶剑士 | `resources/skins/butterfly-swordsman/` | 64×64 | 像素风 | 武侠风格标准版，程序化生成 |
+| 蝴蝶剑士 HD | `resources/skins/butterfly-swordsman-hd/` | 384×384 | 高清风 | 武侠风格 HD 版，AI 辅助生成 |
+| 蕾塞 | `resources/skins/reze/` | 384×384 | 高清风 | 电锯人角色，AI 生成 |
+| 专业团队 | `resources/skins/professional-team/` | 384×384 | 高清风 | 商务人士梗图，AI 生成 |
+
+## 渲染模式
+
+系统根据 `frameSize` 自动判断渲染模式，无需手动配置：
+
+| 模式 | 判定条件 | 缩放算法 | 视觉效果 |
+|------|---------|---------|---------|
+| **像素风** | `frameSize` 最大边 ≤ 288 | 最近邻 (NEAREST) | 放大后像素边缘锐利 |
+| **高清风** | `frameSize` 最大边 > 288 | 双线性 (BILINEAR) | 缩放平滑，无锯齿 |
+
+> 判定阈值 = `PET_RENDER_SIZE × 1.5 = 192 × 1.5 = 288`
 
 ## 切换皮肤
 
@@ -54,6 +65,7 @@ my-skin/
     "width": 128,
     "height": 128
   },
+  "displayScale": 1.0,
   "animations": {
     "idle": {
       "frames": 4,
@@ -95,7 +107,44 @@ my-skin/
 | `description` | string | 描述（可选） |
 | `frameSize.width` | number | 单帧宽度（像素） |
 | `frameSize.height` | number | 单帧高度（像素） |
+| `displayScale` | number | 显示缩放因子（可选，默认 1.0） |
+| `renderMode` | string | 动画模式（可选，默认 `"spritesheet"`）。`"spritesheet"` = 多帧精灵图动画，`"static"` = 静态立绘+Canvas 变换 |
 | `animations` | object | 各状态的动画配置 |
+
+### 两种动画模式
+
+#### 精灵图动画（默认）
+
+```json
+{
+  "animations": {
+    "idle": { "frames": 4, "fps": 4, "loop": true },
+    "happy": { "frames": 4, "fps": 6, "loop": false }
+  }
+}
+```
+
+每种状态需要一张横排多帧精灵图，动画通过逐帧切换实现。
+
+#### 静态立绘
+
+设置 `"renderMode": "static"`，每种状态只需一张单张图片，通过 Canvas 变换实现动画：
+
+```json
+{
+  "renderMode": "static",
+  "animations": {
+    "idle": {
+      "effects": [
+        { "type": "float", "speed": 1.0, "intensity": 4 },
+        { "type": "breathe", "speed": 1.0, "intensity": 0.012 }
+      ]
+    }
+  }
+}
+```
+
+内置 4 种效果：`float`（浮动）、`breathe`（呼吸）、`sway`（摇摆）、`bounce`（弹跳），可自由组合叠加。
 
 ### 动画配置
 
@@ -121,7 +170,9 @@ my-skin/
 - 布局：横排排列所有帧
 - 帧尺寸：由 `frameSize` 指定，所有帧尺寸一致
 - 背景：完全透明（alpha=0）
-- 渲染：像素风（`image-rendering: pixelated`）
+- 渲染：系统根据 `frameSize` 自动选择缩放算法（像素风用最近邻，高清风用双线性）
+- 对齐：角色在画布中水平居中、底部对齐（脚踩地面）
+- 宽高比：系统保持源帧宽高比，不会拉伸变形
 
 示例（4 帧动画，每帧 128×128）：
 

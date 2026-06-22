@@ -20,7 +20,7 @@ export const Config = {
     pushTtl: 300000,
   },
   monitoring: {
-    defaultPollInterval: 30000,
+    defaultPollInterval: 10000,
     shutdownTimeout: 5000,
   },
 } as const

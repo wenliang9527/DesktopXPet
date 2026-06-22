@@ -93,10 +93,12 @@ contextBridge.exposeInMainWorld('desktopXPet', {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 })
 
-// 音效播放 — 主进程返回文件路径后在渲染进程播放
-ipcRenderer.on('sound:play-file', (_, filePath: string) => {
+// 音效播放 — 主进程返回 data URL(或文件路径)后在渲染进程播放
+// sandbox 模式下 file:/// 协议被禁止,使用 data URL 播放
+ipcRenderer.on('sound:play-file', (_, dataOrPath: string) => {
   try {
-    const audio = new Audio(`file:///${filePath.replace(/\\/g, '/')}`)
+    const src = dataOrPath.startsWith('data:') ? dataOrPath : `file:///${dataOrPath.replace(/\\/g, '/')}`
+    const audio = new Audio(src)
     audio.volume = 0.5
     audio.play().catch(() => {})
   } catch {

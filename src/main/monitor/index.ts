@@ -1,7 +1,7 @@
 import { createLogger } from '../utils/logger'
 const log = createLogger('MonitorService')
 import type { MonitorPlugin, MonitorStatus, AggregatedStatus, PushStatus } from '@shared/types'
-import { PUSH_TTL_MS } from '@shared/constants'
+import { PUSH_TTL_MS, DEFAULT_POLL_INTERVAL } from '@shared/constants'
 import { PluginRegistry } from './registry'
 
 /**
@@ -17,10 +17,26 @@ export class MonitorService {
   private onUpdate?: (status: AggregatedStatus) => void
   // 已通知过的 completed 事件 key 集合（`${tool}|${timestamp}`），用于通知去重
   private notifiedCompletedKeys: Set<string> = new Set()
+  // 用户配置的默认轮询间隔,覆盖各插件硬编码的 pollInterval
+  private defaultPollInterval: number
 
-  constructor(registry: PluginRegistry, onUpdate?: (status: AggregatedStatus) => void) {
+  constructor(registry: PluginRegistry, onUpdate?: (status: AggregatedStatus) => void, defaultPollInterval: number = DEFAULT_POLL_INTERVAL) {
     this.registry = registry
     this.onUpdate = onUpdate
+    this.defaultPollInterval = defaultPollInterval
+  }
+
+  /**
+   * 更新默认轮询间隔并重启所有插件定时器(设置变更时调用)
+   */
+  setDefaultPollInterval(interval: number): void {
+    if (interval <= 0 || interval === this.defaultPollInterval) return
+    this.defaultPollInterval = interval
+    log.info(`Default poll interval updated to ${interval}ms, restarting all plugin timers`)
+    // 重启所有已启用插件的定时器,使新间隔立即生效
+    for (const plugin of this.registry.getEnabledPlugins()) {
+      this.startPlugin(plugin)
+    }
   }
 
   /**
@@ -98,10 +114,13 @@ export class MonitorService {
 
   /**
    * 获取插件当前轮询间隔（支持动态调整）
+   *
+   * 以用户配置的 defaultPollInterval 作为基础值(覆盖插件硬编码的 pollInterval),
+   * 再由插件的 adjustPollInterval / minPollInterval / maxPollInterval 进行动态调整与上下限保护。
    */
   private getPluginInterval(plugin: MonitorPlugin): number {
     const lastStatus = this.lastFetchResults.get(plugin.name)
-    let interval = plugin.pollInterval
+    let interval = this.defaultPollInterval
 
     if (lastStatus && plugin.adjustPollInterval) {
       interval = plugin.adjustPollInterval(lastStatus)

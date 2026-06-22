@@ -63,10 +63,6 @@ export function createTray(
         }
       },
     },
-    {
-      label: '⚙️ 设置',
-      click: () => openDashboard(), // 暂时复用，后续打开设置面板
-    },
     { type: 'separator' },
     {
       label: '📌 置顶',

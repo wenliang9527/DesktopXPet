@@ -3,8 +3,10 @@ import { useAppStore } from '../../stores/appStore'
 import { useClickThrough } from '../../hooks/useClickThrough'
 import { useDraggable } from '../../hooks/useDraggable'
 import { SpriteAnimator } from './SpriteAnimator'
+import { StaticAnimator } from './StaticAnimator'
 import { ParticleSystem } from './ParticleSystem'
-import type { PetState, SkinManifest } from '@shared/types'
+import type { PetState, SkinManifest, SpritesheetAnimationConfig, StaticAnimationConfig } from '@shared/types'
+import { isStaticAnimationConfig } from '@shared/types'
 import { PET_RENDER_SIZE } from '@shared/constants'
 
 // 状态映射：waking 使用 idle 图片（因为没有单独的 waking 精灵图）
@@ -28,7 +30,7 @@ const TRANSITION_FADE_IN = 350
 
 export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const animatorRef = useRef<SpriteAnimator | null>(null)
+  const animatorRef = useRef<SpriteAnimator | StaticAnimator | null>(null)
   // lazy init ParticleSystem，避免每次渲染都创建新实例
   const particleRef = useRef<ParticleSystem | null>(null)
   if (particleRef.current === null) {
@@ -45,6 +47,11 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 缓存 DPR 用于像素检测
   const dprRef = useRef(window.devicePixelRatio || 1)
+
+  // 光晕和阴影 gradient 缓存（按 state 缓存，避免每帧重建）
+  // 移入组件 ref，避免模块级缓存跨 context 失效
+  const glowGradientCacheRef = useRef<Map<string, CanvasGradient>>(new Map())
+  const shadowGradientCacheRef = useRef<Map<string, CanvasGradient>>(new Map())
 
   // --- 皮肤切换过渡状态 ---
   const transitionRef = useRef({
@@ -98,7 +105,13 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
               const img = new Image()
               img.onload = () => {
                 const animConfig = m.animations[state]
-                const frameCount = animConfig?.frames ?? 1
+                // 静态模式：每张图只有 1 帧；精灵图模式：从 config 读取帧数
+                const frameCount =
+                  m.renderMode === 'static'
+                    ? 1
+                    : (animConfig && 'frames' in animConfig
+                        ? (animConfig as SpritesheetAnimationConfig).frames
+                        : 1)
                 const scaledWidth = renderSize * frameCount
                 const scaledHeight = renderSize
                 const offscreen = document.createElement('canvas')
@@ -112,33 +125,48 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
                     ctx.imageSmoothingQuality = 'high'
                   }
 
-                  if (Math.abs(scale - 1.0) < 0.01) {
-                    // 无缩放：直接绘制整张精灵图
-                    ctx.drawImage(img, 0, 0, scaledWidth, scaledHeight)
-                  } else {
-                    // 有 displayScale：逐帧绘制，应用缩放并居中
-                    const srcFrameW = img.width / frameCount
-                    const srcFrameH = img.height
-                    const drawSize = renderSize * scale
-                    const offsetX = (renderSize - drawSize) / 2
-                    const offsetY = (renderSize - drawSize) / 2
+                  // 源帧尺寸
+                  const srcFrameW = img.width / frameCount
+                  const srcFrameH = img.height
 
-                    for (let f = 0; f < frameCount; f++) {
-                      ctx.save()
-                      ctx.translate(f * renderSize + offsetX, offsetY)
-                      ctx.drawImage(
-                        img,
-                        f * srcFrameW,
-                        0,
-                        srcFrameW,
-                        srcFrameH, // 源：单帧
-                        0,
-                        0,
-                        drawSize,
-                        drawSize // 目标：缩放后居中
-                      )
-                      ctx.restore()
-                    }
+                  // 保持源帧宽高比，计算目标绘制尺寸
+                  const srcAspect = srcFrameW / srcFrameH
+                  let drawW: number, drawH: number
+                  if (srcAspect >= 1) {
+                    // 宽帧或方帧：以 renderSize 为宽度基准
+                    drawW = renderSize * scale
+                    drawH = drawW / srcAspect
+                  } else {
+                    // 高帧：以 renderSize 为高度基准
+                    drawH = renderSize * scale
+                    drawW = drawH * srcAspect
+                  }
+
+                  // 水平居中，底部对齐（人型宠物脚踩地面，不会"飘"在空中）
+                  const offsetX = (renderSize - drawW) / 2
+                  const offsetY = renderSize - drawH
+
+                  // 逐帧绘制（统一路径，不再区分有无 displayScale）
+                  for (let f = 0; f < frameCount; f++) {
+                    ctx.save()
+                    // 裁剪到当前帧区域，防止 displayScale > 1 时溢出到相邻帧
+                    ctx.beginPath()
+                    ctx.rect(f * renderSize, 0, renderSize, renderSize)
+                    ctx.clip()
+
+                    ctx.translate(f * renderSize + offsetX, offsetY)
+                    ctx.drawImage(
+                      img,
+                      f * srcFrameW,
+                      0,
+                      srcFrameW,
+                      srcFrameH, // 源：单帧
+                      0,
+                      0,
+                      drawW,
+                      drawH // 目标：保持宽高比，底部对齐
+                    )
+                    ctx.restore()
                   }
                 }
                 scaledImagesRef.current[state] = offscreen
@@ -168,15 +196,26 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
       if (!scaledCanvas || !animConfig) return
 
       const fakeImage = scaledCanvas as unknown as HTMLImageElement
-      animatorRef.current = new SpriteAnimator(fakeImage, {
-        frameSize: { width: PET_RENDER_SIZE, height: PET_RENDER_SIZE },
-        ...animConfig,
-      })
+
+      if (currentManifest.renderMode === 'static' && isStaticAnimationConfig(animConfig)) {
+        // 静态模式：使用 StaticAnimator（单张立绘 + Canvas 变换动画）
+        animatorRef.current = new StaticAnimator(fakeImage, animConfig)
+      } else if (!isStaticAnimationConfig(animConfig)) {
+        // 精灵图模式：使用 SpriteAnimator（逐帧动画）
+        animatorRef.current = new SpriteAnimator(fakeImage, {
+          ...animConfig,
+          // frameSize 必须放在 spread 后面，确保始终使用 renderSize
+          // （offscreen canvas 每帧固定为 renderSize x renderSize）
+          frameSize: { width: PET_RENDER_SIZE, height: PET_RENDER_SIZE },
+        })
+      }
 
       // waking 状态播放完毕后自动切换到 idle
       if (currentStateRef.current === 'waking') {
-        animatorRef.current.onFinish = () => {
-          useAppStore.getState().setPetState('idle')
+        if (animatorRef.current) {
+          animatorRef.current.onFinish = () => {
+            useAppStore.getState().setPetState('idle')
+          }
         }
       }
     },
@@ -354,12 +393,12 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
 
       // 1) 状态环境光晕层：在宠物背后渲染柔和彩色光晕
       if (petAlpha > 0.05) {
-        drawStateGlow(ctx, logicalSize, petAlpha, state, time)
+        drawStateGlow(ctx, logicalSize, petAlpha, state, time, glowGradientCacheRef.current)
       }
 
       // 2) 阴影层：宠物下方柔和椭圆影
       if (petAlpha > 0.05) {
-        drawShadow(ctx, logicalSize, petAlpha, state, time)
+        drawShadow(ctx, logicalSize, petAlpha, state, time, shadowGradientCacheRef.current)
       }
 
       // 3) 精灵层：当前帧
@@ -372,13 +411,23 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
         ctx.save()
         ctx.globalAlpha = petAlpha
 
-        // 轻微呼吸感：根据时间做微妙的缩放呼吸
-        const breathe = 1 + Math.sin(time * 0.002) * 0.008
-        if (Math.abs(breathe - 1) > 0.001) {
+        if (animator instanceof StaticAnimator) {
+          // 静态模式：应用配置的动画变换（浮动、呼吸、摇摆、弹跳）
+          const transforms = animator.computeTransforms(time)
           const center = logicalSize / 2
-          ctx.translate(center, center)
-          ctx.scale(breathe, breathe)
+          ctx.translate(center + transforms.translateX, center + transforms.translateY)
+          ctx.rotate(transforms.rotation)
+          ctx.scale(transforms.scaleX, transforms.scaleY)
           ctx.translate(-center, -center)
+        } else {
+          // 精灵图模式：保留原有的微妙呼吸感
+          const breathe = 1 + Math.sin(time * 0.002) * 0.008
+          if (Math.abs(breathe - 1) > 0.001) {
+            const center = logicalSize / 2
+            ctx.translate(center, center)
+            ctx.scale(breathe, breathe)
+            ctx.translate(-center, -center)
+          }
         }
 
         ctx.drawImage(
@@ -444,6 +493,7 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     const pixel = ctx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
     if (pixel[3] > 0) {
       useAppStore.getState().setPetState('happy')
+      window.desktopXPet.playSound('click')
       if (clickTimerRef.current) clearTimeout(clickTimerRef.current)
       clickTimerRef.current = setTimeout(() => {
         clickTimerRef.current = null
@@ -477,8 +527,7 @@ const STATE_GLOW_COLORS: Record<string, { h: number; s: number; l: number }> = {
 }
 
 // 缓存光晕和阴影的 gradient（按 state 缓存，避免每帧重建）
-const glowGradientCache = new Map<string, CanvasGradient>()
-const shadowGradientCache = new Map<string, CanvasGradient>()
+// 注意：缓存移入组件 ref，模块级不再持有 CanvasGradient（避免跨 context 失效）
 
 /**
  * 宠物背后的状态环境光晕 — 柔和的彩色辉光，随时间微妙脉动
@@ -488,7 +537,8 @@ function drawStateGlow(
   canvasSize: number,
   alpha: number,
   state: PetState,
-  time: number
+  time: number,
+  cache: Map<string, CanvasGradient>
 ): void {
   const glow = STATE_GLOW_COLORS[state] || STATE_GLOW_COLORS.idle
   const cx = canvasSize / 2
@@ -501,14 +551,14 @@ function drawStateGlow(
   ctx.globalAlpha = alpha * 0.12
 
   // 使用缓存的 gradient（按 state 缓存，半径用平均值避免每帧重建）
-  let grad = glowGradientCache.get(state)
+  let grad = cache.get(state)
   if (!grad) {
     const baseRadius = canvasSize * 0.42
     grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseRadius)
     grad.addColorStop(0, `hsla(${glow.h}, ${glow.s}%, ${glow.l}%, 0.6)`)
     grad.addColorStop(0.5, `hsla(${glow.h}, ${glow.s}%, ${glow.l}%, 0.2)`)
     grad.addColorStop(1, `hsla(${glow.h}, ${glow.s}%, ${glow.l}%, 0)`)
-    glowGradientCache.set(state, grad)
+    cache.set(state, grad)
   }
 
   ctx.beginPath()
@@ -526,7 +576,8 @@ function drawShadow(
   canvasSize: number,
   alpha: number,
   state: PetState,
-  time: number
+  time: number,
+  cache: Map<string, CanvasGradient>
 ): void {
   ctx.save()
   const cx = canvasSize / 2
@@ -539,7 +590,7 @@ function drawShadow(
   ctx.globalAlpha = alpha * 0.25
 
   // 使用缓存的 shadow gradient（按 state 缓存）
-  let grad = shadowGradientCache.get(state)
+  let grad = cache.get(state)
   if (!grad) {
     let shadowColor = 'rgba(0, 0, 0, 0.45)'
     let shadowEdge = 'rgba(0, 0, 0, 0.15)'
@@ -556,7 +607,7 @@ function drawShadow(
     grad.addColorStop(0, shadowColor)
     grad.addColorStop(0.6, shadowEdge)
     grad.addColorStop(1, 'rgba(0, 0, 0, 0)')
-    shadowGradientCache.set(state, grad)
+    cache.set(state, grad)
   }
 
   ctx.beginPath()

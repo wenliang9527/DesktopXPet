@@ -1,39 +1,45 @@
 {
-  "name": "蝴蝶剑士 (Butterfly Swordsman)",
+  "name": "蝴蝶忍 (Kocho Shinobu)",
   "author": "DesktopXPet",
-  "version": "2.0.0",
+  "version": "4.0.0",
   "preview": "preview.png",
-  "description": "Shinobu-inspired swordswoman — optimized v2 with dynamic sword action",
+  "description": "鬼灭之刃·蝴蝶忍 — 静态立绘 + 动态效果",
+  "renderMode": "static",
   "frameSize": {
-    "width": 64,
-    "height": 64
+    "width": 128,
+    "height": 128
   },
-  "displayScale": 0.8,
+  "displayScale": 0.85,
   "animations": {
     "idle": {
-      "frames": 4,
-      "fps": 4,
-      "loop": true
+      "effects": [
+        { "type": "float", "speed": 1.0, "intensity": 3 },
+        { "type": "breathe", "speed": 1.0, "intensity": 0.012 }
+      ]
     },
     "working": {
-      "frames": 6,
-      "fps": 8,
-      "loop": true
+      "effects": [
+        { "type": "breathe", "speed": 1.5, "intensity": 0.01 }
+      ]
     },
     "happy": {
-      "frames": 4,
-      "fps": 6,
-      "loop": false
+      "effects": [
+        { "type": "bounce", "speed": 2.0, "intensity": 6 },
+        { "type": "sway", "speed": 1.5, "intensity": 0.03 }
+      ],
+      "duration": 3
     },
     "sleeping": {
-      "frames": 2,
-      "fps": 1,
-      "loop": true
+      "effects": [
+        { "type": "breathe", "speed": 0.5, "intensity": 0.02 },
+        { "type": "float", "speed": 0.3, "intensity": 1.5 }
+      ]
     },
     "error": {
-      "frames": 3,
-      "fps": 4,
-      "loop": true
+      "effects": [
+        { "type": "bounce", "speed": 3.0, "intensity": 5 },
+        { "type": "sway", "speed": 2.0, "intensity": 0.05 }
+      ]
     }
   }
 }

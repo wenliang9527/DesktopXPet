@@ -1,39 +1,46 @@
 {
   "name": "蕾塞 Reze (Chainsaw Man)",
   "author": "DesktopXPet",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "preview": "preview.png",
-  "description": "Chibi anime Reze from Chainsaw Man — bomb girl with red flower HD sprites",
+  "description": "电锯人·蕾塞 — 炸弹少女，静态立绘 + 动态效果",
+  "renderMode": "static",
   "frameSize": {
     "width": 384,
     "height": 384
   },
-  "displayScale": 1.2,
+  "displayScale": 0.85,
   "animations": {
     "idle": {
-      "frames": 12,
-      "fps": 6,
-      "loop": true
+      "effects": [
+        { "type": "float", "speed": 1.0, "intensity": 4 },
+        { "type": "breathe", "speed": 1.0, "intensity": 0.012 }
+      ]
     },
     "working": {
-      "frames": 12,
-      "fps": 10,
-      "loop": true
+      "effects": [
+        { "type": "breathe", "speed": 1.5, "intensity": 0.01 },
+        { "type": "sway", "speed": 0.8, "intensity": 0.02 }
+      ]
     },
     "happy": {
-      "frames": 12,
-      "fps": 8,
-      "loop": true
+      "effects": [
+        { "type": "bounce", "speed": 2.0, "intensity": 8 },
+        { "type": "sway", "speed": 1.5, "intensity": 0.03 }
+      ],
+      "duration": 3
     },
     "sleeping": {
-      "frames": 12,
-      "fps": 3,
-      "loop": true
+      "effects": [
+        { "type": "breathe", "speed": 0.5, "intensity": 0.02 },
+        { "type": "float", "speed": 0.3, "intensity": 2 }
+      ]
     },
     "error": {
-      "frames": 12,
-      "fps": 6,
-      "loop": true
+      "effects": [
+        { "type": "bounce", "speed": 3.0, "intensity": 7 },
+        { "type": "sway", "speed": 2.5, "intensity": 0.05 }
+      ]
     }
   }
 }

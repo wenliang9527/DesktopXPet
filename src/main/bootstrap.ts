@@ -5,7 +5,7 @@ import os from 'os'
 import { createLogger } from './utils/logger'
 const log = createLogger('App')
 import { PetWindowManager } from './window'
-import { initStore, getStore } from './store'
+import { initStore, getStore, getEffectivePollInterval } from './store'
 import { createTray, destroyTray, updateTrayTooltip } from './tray'
 import { registerGlobalShortcuts, unregisterGlobalShortcuts } from './shortcuts'
 import { pushNotification } from './notify'
@@ -56,7 +56,7 @@ async function initMonitorSystem(): Promise<void> {
       // 同一 completed 事件只通知一次(由 MonitorService 去重)
       pushNotification('✅ 任务完成', status.summary)
     }
-  })
+  }, getEffectivePollInterval())
 
   await pluginRegistry.initAll()
   monitorService.startAll()

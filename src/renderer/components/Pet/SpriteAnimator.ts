@@ -1,4 +1,4 @@
-import type { AnimationConfig, SpriteFrame } from '@shared/types'
+import type { SpritesheetAnimationConfig, SpriteFrame } from '@shared/types'
 
 /**
  * 精灵图动画引擎 — 纯逻辑类，不绑定 DOM
@@ -21,7 +21,7 @@ export class SpriteAnimator {
   private _frameProgress: number = 0
   public onFinish?: () => void
 
-  constructor(image: HTMLImageElement, config: AnimationConfig) {
+  constructor(image: HTMLImageElement, config: SpritesheetAnimationConfig) {
     this.image = image
     this.frameWidth = config.frameSize?.width ?? 64
     this.frameHeight = config.frameSize?.height ?? 64

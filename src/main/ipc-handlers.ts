@@ -3,8 +3,8 @@ import path from 'path'
 import fs from 'fs'
 import { createLogger } from './utils/logger'
 const log = createLogger('IPC')
-import { getStore } from './store'
-import { getSoundPath, reloadSound, getUserSoundDir, setSoundEnabled } from './sound'
+import { getStore, getEffectivePollInterval } from './store'
+import { getSoundDataUrl, reloadSound, getUserSoundDir, setSoundEnabled } from './sound'
 import { installSkinPackage } from './skin-installer'
 import { IPC } from '../shared/ipc-channels'
 import { DASHBOARD_WIDTH, DASHBOARD_HEIGHT } from '../shared/constants'
@@ -163,10 +163,6 @@ export function setupIPC(): void {
           }
         },
       },
-      {
-        label: '⚙️ 设置',
-        click: () => openDashboard(),
-      },
       { type: 'separator' },
       {
         label: '📌 置顶',
@@ -180,7 +176,7 @@ export function setupIPC(): void {
         click: () => petWindow?.resetPosition(),
       },
       {
-        label: '️ 显示/隐藏',
+        label: '👁️ 显示/隐藏',
         click: () => petWindow?.toggleVisibility(),
       },
       { type: 'separator' },
@@ -313,6 +309,11 @@ export function setupIPC(): void {
     const store = getStore().store
     // 过滤敏感字段,避免 API token 泄露到渲染进程
     const { apiToken, ...safeStore } = store as Record<string, unknown>
+    // 迁移旧默认值: monitor.defaultPollInterval 30000 → 10000
+    const monitor = safeStore.monitor as Record<string, unknown> | undefined
+    if (monitor && monitor.defaultPollInterval === 30000) {
+      monitor.defaultPollInterval = getEffectivePollInterval()
+    }
     return safeStore
   })
 
@@ -336,6 +337,14 @@ export function setupIPC(): void {
     // 点击音效设置生效
     if ('pet.clickSound' in settings) {
       setSoundEnabled(settings['pet.clickSound'] === true)
+    }
+
+    // 轮询间隔变更后,重启所有插件定时器使新间隔立即生效
+    if ('monitor.defaultPollInterval' in settings) {
+      const newInterval = settings['monitor.defaultPollInterval']
+      if (typeof newInterval === 'number' && newInterval > 0) {
+        container.get('monitorService')?.setDefaultPollInterval(newInterval)
+      }
     }
 
     log.info('Settings updated:', Object.keys(settings).join(', '))
@@ -404,9 +413,10 @@ export function setupIPC(): void {
   })
 
   ipcMain.on(IPC.SOUND_PLAY, (event, name: string) => {
-    const soundPath = getSoundPath(name)
-    if (soundPath) {
-      event.sender.send('sound:play-file', soundPath)
+    // sandbox 模式下 file:/// 协议被禁止,改用 data URL 播放音效
+    const dataUrl = getSoundDataUrl(name)
+    if (dataUrl) {
+      event.sender.send('sound:play-file', dataUrl)
     }
   })
 }

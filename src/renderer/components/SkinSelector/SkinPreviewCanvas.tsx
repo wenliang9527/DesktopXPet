@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import type { SkinManifest } from '@shared/types'
+import type { SkinManifest, SpritesheetAnimationConfig } from '@shared/types'
+import { isStaticAnimationConfig } from '@shared/types'
 
 interface SkinPreviewCanvasProps {
   skinPath: string
@@ -65,11 +66,18 @@ export default function SkinPreviewCanvas({
     const animConfig = manifest.animations?.idle
     if (!animConfig) return
 
-    const frameWidth = animConfig.frameSize?.width || manifest.frameSize.width
-    const frameHeight = animConfig.frameSize?.height || manifest.frameSize.height
-    const totalFrames = animConfig.frames
-    const fps = animConfig.fps || 8
-    const interval = 1000 / fps
+    const isStatic = manifest.renderMode === 'static' || isStaticAnimationConfig(animConfig)
+    const spriteConfig = isStatic ? null : (animConfig as SpritesheetAnimationConfig)
+
+    const frameWidth = isStatic
+      ? img.width
+      : (spriteConfig!.frameSize?.width || manifest.frameSize.width)
+    const frameHeight = isStatic
+      ? img.height
+      : (spriteConfig!.frameSize?.height || manifest.frameSize.height)
+    const totalFrames = isStatic ? 1 : spriteConfig!.frames
+    const fps = isStatic ? 0 : (spriteConfig!.fps || 8)
+    const interval = fps > 0 ? 1000 / fps : 16
 
     let rafId = 0
     let lastTime = 0
@@ -85,20 +93,34 @@ export default function SkinPreviewCanvas({
         lastTime = time
         // 清空 canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height)
-        // 绘制当前帧(从精灵图中截取)
-        ctx.drawImage(
-          img,
-          currentFrame * frameWidth,
-          0,
-          frameWidth,
-          frameHeight,
-          0,
-          0,
-          canvas.width,
-          canvas.height
-        )
-        // 下一帧(循环)
-        currentFrame = (currentFrame + 1) % totalFrames
+
+        if (isStatic) {
+          // 静态模式：绘制完整图片 + 微妙呼吸缩放
+          const breathe = 1 + Math.sin(time * 0.003) * 0.02
+          const cx = canvas.width / 2
+          const cy = canvas.height / 2
+          ctx.save()
+          ctx.translate(cx, cy)
+          ctx.scale(breathe, breathe)
+          ctx.translate(-cx, -cy)
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          ctx.restore()
+        } else {
+          // 精灵图模式：从精灵图中截取当前帧
+          ctx.drawImage(
+            img,
+            currentFrame * frameWidth,
+            0,
+            frameWidth,
+            frameHeight,
+            0,
+            0,
+            canvas.width,
+            canvas.height
+          )
+          // 下一帧(循环)
+          currentFrame = (currentFrame + 1) % totalFrames
+        }
       }
       rafId = requestAnimationFrame(render)
     }

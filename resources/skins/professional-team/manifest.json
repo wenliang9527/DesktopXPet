@@ -1,39 +1,46 @@
 {
-  "name": "专业团队 (Professional Team)",
+  "name": "张伟 (Zhang Wei)",
   "author": "DesktopXPet",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "preview": "preview.png",
-  "description": "Chibi anime businessman — 专业团队 meme HD sprites",
+  "description": "爱情公寓·张伟 — 静态立绘 + 动态效果",
+  "renderMode": "static",
   "frameSize": {
     "width": 384,
     "height": 384
   },
-  "displayScale": 1.2,
+  "displayScale": 0.85,
   "animations": {
     "idle": {
-      "frames": 12,
-      "fps": 6,
-      "loop": true
+      "effects": [
+        { "type": "float", "speed": 0.8, "intensity": 3 },
+        { "type": "breathe", "speed": 1.0, "intensity": 0.012 }
+      ]
     },
     "working": {
-      "frames": 12,
-      "fps": 10,
-      "loop": true
+      "effects": [
+        { "type": "breathe", "speed": 1.2, "intensity": 0.01 },
+        { "type": "sway", "speed": 0.5, "intensity": 0.015 }
+      ]
     },
     "happy": {
-      "frames": 12,
-      "fps": 8,
-      "loop": true
+      "effects": [
+        { "type": "bounce", "speed": 2.5, "intensity": 10 },
+        { "type": "sway", "speed": 2.0, "intensity": 0.04 }
+      ],
+      "duration": 3
     },
     "sleeping": {
-      "frames": 12,
-      "fps": 3,
-      "loop": true
+      "effects": [
+        { "type": "breathe", "speed": 0.4, "intensity": 0.025 },
+        { "type": "float", "speed": 0.2, "intensity": 1.5 }
+      ]
     },
     "error": {
-      "frames": 12,
-      "fps": 6,
-      "loop": true
+      "effects": [
+        { "type": "bounce", "speed": 3.5, "intensity": 7 },
+        { "type": "sway", "speed": 2.5, "intensity": 0.06 }
+      ]
     }
   }
 }

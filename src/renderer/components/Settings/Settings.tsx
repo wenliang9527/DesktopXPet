@@ -43,26 +43,34 @@ export default function Settings() {
     setSaving(true)
     setError(null)
     try {
-      // 只发送变更的键值对，减少磁盘 IO
+      // 只发送变更的扁平 key（如 pet.scale），减少磁盘 IO，避免卡顿
       const initial = initialRef.current
+      const changes: Record<string, unknown> = {}
       if (initial) {
-        await window.desktopXPet.setSettings(settings as unknown as Record<string, unknown>)
-      } else {
-        const changes: Record<string, unknown> = {}
         for (const section of ['pet', 'behavior', 'monitor', 'general'] as const) {
           const initSec = (initial as unknown as Record<string, Record<string, unknown>>)[section]
           const curSec = (settings as unknown as Record<string, Record<string, unknown>>)[section]
-          for (const key of Object.keys(initSec)) {
+          if (!initSec || !curSec) continue
+          for (const key of Object.keys(curSec)) {
             if (initSec[key] !== curSec[key]) {
               changes[`${section}.${key}`] = curSec[key]
             }
           }
         }
-        if (Object.keys(changes).length > 0) {
-          await window.desktopXPet.setSettings(changes)
-          // 更新初始值引用
-          initialRef.current = JSON.parse(JSON.stringify(settings))
+      } else {
+        // 首次保存，发送全部扁平 key
+        for (const section of ['pet', 'behavior', 'monitor', 'general'] as const) {
+          const sec = (settings as unknown as Record<string, Record<string, unknown>>)[section]
+          if (!sec) continue
+          for (const key of Object.keys(sec)) {
+            changes[`${section}.${key}`] = sec[key]
+          }
         }
+      }
+      if (Object.keys(changes).length > 0) {
+        await window.desktopXPet.setSettings(changes)
+        // 更新初始值引用
+        initialRef.current = JSON.parse(JSON.stringify(settings))
       }
       setSaved(true)
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
@@ -172,7 +180,7 @@ export default function Settings() {
                 ...settings,
                 monitor: {
                   ...settings.monitor,
-                  defaultPollInterval: (parseInt(e.target.value) || 30) * 1000,
+                  defaultPollInterval: (parseInt(e.target.value) || 10) * 1000,
                 },
               })
             }
@@ -198,7 +206,7 @@ export default function Settings() {
       </div>
 
       <button className="save-btn" onClick={handleSave} disabled={saving}>
-        {saving ? ' 保存中...' : saved ? '✅ 已保存' : '💾 保存设置'}
+        {saving ? '⏳ 保存中...' : saved ? '✅ 已保存' : '💾 保存设置'}
       </button>
       {error && <div className="settings-error">{error}</div>}
     </div>

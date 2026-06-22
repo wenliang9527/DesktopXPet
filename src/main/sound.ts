@@ -5,9 +5,14 @@ import log from 'electron-log/main'
 
 let soundEnabled = true
 const soundPaths: Map<string, string> = new Map()
+// 缓存音效的 data URL (base64),避免每次播放都读磁盘
+const soundDataUrls: Map<string, string> = new Map()
 
-// 支持的音效文件扩展名
-const SOUND_EXTENSIONS = ['.wav', '.mp3']
+// 支持的音效文件扩展名及对应 MIME 类型
+const SOUND_EXTENSIONS: Record<string, string> = {
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+}
 
 /**
  * 确保目录存在（带重试，应对 Windows 上杀毒软件/文件锁定的临时 EPERM）
@@ -48,13 +53,22 @@ function scanSoundDir(dir: string): number {
     for (const entry of entries) {
       if (!entry.isFile()) continue
       const ext = entry.name.toLowerCase().match(/\.[^.]+$/)?.[0] || ''
-      if (!SOUND_EXTENSIONS.includes(ext)) continue
+      if (!(ext in SOUND_EXTENSIONS)) continue
 
       // 文件名（不含扩展名）作为 key，如 click.wav → click
-      // 用正则去除扩展名，兼容大写扩展名（如 click.WAV）
       const name = entry.name.replace(/\.[^.]+$/i, '')
       const fullPath = join(dir, entry.name)
       soundPaths.set(name, fullPath)
+
+      // 预加载为 data URL,供 sandbox 渲染进程播放
+      try {
+        const data = fs.readFileSync(fullPath)
+        const mime = SOUND_EXTENSIONS[ext]
+        soundDataUrls.set(name, `data:${mime};base64,${data.toString('base64')}`)
+      } catch (err) {
+        log.warn(`Failed to preload sound ${name}:`, err)
+      }
+
       count++
     }
   } catch (err) {
@@ -65,6 +79,7 @@ function scanSoundDir(dir: string): number {
 
 export async function initSound(): Promise<void> {
   soundPaths.clear()
+  soundDataUrls.clear()
 
   // 1. 先加载内置音效目录（resources/sounds）— 打包后只读
   const builtinSoundDir = join(app.getAppPath(), 'resources', 'sounds')
@@ -100,6 +115,15 @@ export function isSoundEnabled(): boolean {
 export function getSoundPath(name: string): string | undefined {
   if (!soundEnabled) return undefined
   return soundPaths.get(name)
+}
+
+/**
+ * 获取音效的 data URL (base64),用于 sandbox 渲染进程播放。
+ * sandbox 模式下 file:/// 协议被禁止,必须用 data URL。
+ */
+export function getSoundDataUrl(name: string): string | undefined {
+  if (!soundEnabled) return undefined
+  return soundDataUrls.get(name)
 }
 
 /**

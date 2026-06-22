@@ -5,8 +5,8 @@ import { z } from 'zod'
  * 在 skin-loader 加载时校验,防止字段缺失/类型错误导致运行时崩溃
  */
 
-// 动画配置
-export const AnimationConfigSchema = z.object({
+// 精灵图动画配置 (逐帧模式)
+export const SpritesheetAnimationConfigSchema = z.object({
   // 帧数
   frames: z.number().int().positive(),
   // 帧率(fps)
@@ -21,6 +21,25 @@ export const AnimationConfigSchema = z.object({
     })
     .optional(),
 })
+
+// 静态动画效果
+export const StaticEffectSchema = z.object({
+  type: z.enum(['float', 'breathe', 'sway', 'bounce']),
+  speed: z.number().positive().optional(),
+  intensity: z.number().positive().optional(),
+})
+
+// 静态动画配置 (立绘模式)
+export const StaticAnimationConfigSchema = z.object({
+  effects: z.array(StaticEffectSchema).min(1),
+  duration: z.number().positive().optional(),
+})
+
+// 动画配置：支持精灵图模式或静态模式
+export const AnimationConfigSchema = z.union([
+  SpritesheetAnimationConfigSchema,
+  StaticAnimationConfigSchema,
+])
 
 // 皮肤 manifest
 export const SkinManifestSchema = z.object({
@@ -43,6 +62,8 @@ export const SkinManifestSchema = z.object({
   animations: z.record(z.string(), AnimationConfigSchema),
   // 显示缩放因子
   displayScale: z.number().positive().optional(),
+  // 渲染模式: 'spritesheet'(逐帧精灵图,默认) 或 'static'(静态立绘+Canvas动画)
+  renderMode: z.enum(['spritesheet', 'static']).optional(),
 })
 
 /**

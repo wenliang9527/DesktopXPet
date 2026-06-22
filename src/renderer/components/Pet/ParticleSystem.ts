@@ -266,6 +266,14 @@ export class ParticleSystem {
   private globalHueOffset = 0
   /** 全局色相偏移速度 (度/秒) */
   private globalHueSpeed = 8
+  /**
+   * 渐变缓存 — 按 (形状, 量化颜色, 量化尺寸) 缓存 CanvasGradient。
+   * 粒子每帧色相偏移很小，量化后大部分帧命中缓存，避免每帧创建大量 gradient 对象。
+   * CanvasGradient 绑定到创建它的 context，本系统在同一 canvas 上渲染，context 稳定。
+   */
+  private gradientCache: Map<string, CanvasGradient> = new Map()
+  /** 缓存上限，防止极端情况无限增长 */
+  private static readonly GRADIENT_CACHE_LIMIT = 256
 
   constructor(width: number, height: number) {
     this.canvasWidth = width
@@ -280,6 +288,44 @@ export class ParticleSystem {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
     if (!enabled) this.particles = []
+  }
+
+  /**
+   * 量化颜色 — 将 HSL 值四舍五入到固定步长，用于 gradient 缓存 key。
+   * 粒子每帧色相偏移通常 <1 度，5 度量化下大部分帧命中缓存。
+   */
+  private quantizeColor(c: HSLColor): HSLColor {
+    return {
+      h: Math.round(c.h / 5) * 5,
+      s: Math.round(c.s / 5) * 5,
+      l: Math.round(c.l / 5) * 5,
+    }
+  }
+
+  /**
+   * 获取或创建缓存的 radialGradient。
+   * 所有 gradient 使用相对坐标 (0,0)，调用方需先 translate 到粒子位置。
+   */
+  private getCachedGradient(
+    ctx: CanvasRenderingContext2D,
+    key: string,
+    radius: number,
+    stops: Array<{ offset: number; color: string }>
+  ): CanvasGradient {
+    let grad = this.gradientCache.get(key)
+    if (grad) return grad
+
+    grad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius)
+    for (const stop of stops) {
+      grad.addColorStop(stop.offset, stop.color)
+    }
+
+    // 缓存上限保护：超过时清空重建（简单策略，避免 LRU 复杂度）
+    if (this.gradientCache.size >= ParticleSystem.GRADIENT_CACHE_LIMIT) {
+      this.gradientCache.clear()
+    }
+    this.gradientCache.set(key, grad)
+    return grad
   }
 
   setState(state: PetState): void {
@@ -494,14 +540,23 @@ export class ParticleSystem {
 
   private drawGradientCircle(ctx: CanvasRenderingContext2D, p: Particle, c: HSLColor): void {
     const r = p.size
-    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 1.8)
-    grad.addColorStop(0, hslStr({ h: c.h, s: c.s, l: Math.min(c.l + 20, 98) }, 0.95))
-    grad.addColorStop(0.4, hslStr(c, 0.7))
-    grad.addColorStop(1, hslStr(c, 0))
+    const qr = Math.ceil(r)
+    const qc = this.quantizeColor(c)
+    const key = `circle_${qc.h}_${qc.s}_${qc.l}_${qr}`
+
+    const grad = this.getCachedGradient(ctx, key, qr * 1.8, [
+      { offset: 0, color: hslStr({ h: qc.h, s: qc.s, l: Math.min(qc.l + 20, 98) }, 0.95) },
+      { offset: 0.4, color: hslStr(qc, 0.7) },
+      { offset: 1, color: hslStr(qc, 0) },
+    ])
+
+    ctx.save()
+    ctx.translate(p.x, p.y)
     ctx.beginPath()
-    ctx.arc(p.x, p.y, r * 1.8, 0, Math.PI * 2)
+    ctx.arc(0, 0, qr * 1.8, 0, Math.PI * 2)
     ctx.fillStyle = grad
     ctx.fill()
+    ctx.restore()
   }
 
   // --- N 角星（渐变填充，无 shadowBlur） ---
@@ -525,11 +580,15 @@ export class ParticleSystem {
     }
     ctx.closePath()
 
-    // 渐变填充（替代 shadowBlur 发光效果）
-    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, outer * 1.5)
-    grad.addColorStop(0, hslStr({ h: c.h, s: c.s, l: Math.min(c.l + 25, 98) }, 1))
-    grad.addColorStop(0.6, hslStr(c, 0.85))
-    grad.addColorStop(1, hslStr({ h: c.h, s: c.s, l: Math.max(0, c.l - 10) }, 0))
+    // 缓存渐变（量化颜色 + 尺寸）
+    const qouter = Math.ceil(outer)
+    const qc = this.quantizeColor(c)
+    const key = `star${points}_${qc.h}_${qc.s}_${qc.l}_${qouter}`
+    const grad = this.getCachedGradient(ctx, key, qouter * 1.5, [
+      { offset: 0, color: hslStr({ h: qc.h, s: qc.s, l: Math.min(qc.l + 25, 98) }, 1) },
+      { offset: 0.6, color: hslStr(qc, 0.85) },
+      { offset: 1, color: hslStr({ h: qc.h, s: qc.s, l: Math.max(0, qc.l - 10) }, 0) },
+    ])
     ctx.fillStyle = grad
     ctx.fill()
 
@@ -550,9 +609,14 @@ export class ParticleSystem {
     ctx.bezierCurveTo(s * 1, -s * 5, s * 5, -s * 1, 0, s * 3)
     ctx.closePath()
 
-    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, s * 6)
-    grad.addColorStop(0, hslStr({ h: c.h, s: c.s, l: Math.min(c.l + 15, 95) }, 1))
-    grad.addColorStop(1, hslStr(c, 0))
+    // 缓存渐变
+    const qs = Math.ceil(p.size)
+    const qc = this.quantizeColor(c)
+    const key = `heart_${qc.h}_${qc.s}_${qc.l}_${qs}`
+    const grad = this.getCachedGradient(ctx, key, qs * 0.72, [
+      { offset: 0, color: hslStr({ h: qc.h, s: qc.s, l: Math.min(qc.l + 15, 95) }, 1) },
+      { offset: 1, color: hslStr(qc, 0) },
+    ])
     ctx.fillStyle = grad
     ctx.fill()
 
@@ -574,10 +638,14 @@ export class ParticleSystem {
     ctx.lineTo(-r * 0.6, 0)
     ctx.closePath()
 
-    // 渐变填充替代 shadowBlur
-    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 1.5)
-    grad.addColorStop(0, hslStr({ h: c.h, s: c.s, l: Math.min(c.l + 15, 95) }, 0.95))
-    grad.addColorStop(1, hslStr(c, 0))
+    // 缓存渐变替代 shadowBlur
+    const qr = Math.ceil(r)
+    const qc = this.quantizeColor(c)
+    const key = `diamond_${qc.h}_${qc.s}_${qc.l}_${qr}`
+    const grad = this.getCachedGradient(ctx, key, qr * 1.5, [
+      { offset: 0, color: hslStr({ h: qc.h, s: qc.s, l: Math.min(qc.l + 15, 95) }, 0.95) },
+      { offset: 1, color: hslStr(qc, 0) },
+    ])
     ctx.fillStyle = grad
     ctx.fill()
 

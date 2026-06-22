@@ -37,12 +37,34 @@ export interface SkinInfo {
   preview: string
 }
 
-// 皮肤动画配置
-export interface AnimationConfig {
+// 静态动画效果类型
+export type StaticEffectType = 'float' | 'breathe' | 'sway' | 'bounce'
+
+export interface StaticEffect {
+  type: StaticEffectType
+  speed?: number    // 动画速度倍率 (默认 1.0)
+  intensity?: number // 效果强度 (默认值因效果而异)
+}
+
+export interface StaticAnimationConfig {
+  effects: StaticEffect[]
+  duration?: number // 持续时间(秒),用于非循环动画(如 happy)
+}
+
+// 精灵图动画配置 (逐帧模式)
+export interface SpritesheetAnimationConfig {
   frames: number
   fps: number
   loop: boolean
   frameSize?: { width: number; height: number }
+}
+
+// 动画配置：精灵图模式 或 静态模式
+export type AnimationConfig = SpritesheetAnimationConfig | StaticAnimationConfig
+
+/** 运行时判断是否为静态动画配置 */
+export function isStaticAnimationConfig(config: AnimationConfig): config is StaticAnimationConfig {
+  return 'effects' in config
 }
 
 // 皮肤 manifest
@@ -56,6 +78,8 @@ export interface SkinManifest {
   animations: Record<string, AnimationConfig>
   /** 显示缩放因子 (1.0=原始, >1 放大角色以匹配其他皮肤的视觉大小) */
   displayScale?: number
+  /** 渲染模式: 'spritesheet'(逐帧精灵图,默认) 或 'static'(静态立绘+Canvas动画) */
+  renderMode?: 'spritesheet' | 'static'
 }
 
 // 皮肤数据（加载后）

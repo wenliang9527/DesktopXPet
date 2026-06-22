@@ -44,16 +44,16 @@ def generate_tone(freq: float, duration_ms: float, volume: float = 0.5,
 
 
 def generate_click():
-    """清脆点击音：短促的高频脉冲"""
-    # 800Hz 主音 + 1200Hz 泛音，共 40ms
-    n = int(SAMPLE_RATE * 0.04)
+    """清脆点击音：明显的多频脉冲，1秒"""
+    n = int(SAMPLE_RATE * 1.0)
     samples = []
     for i in range(n):
         t = i / SAMPLE_RATE
-        # 指数衰减包络
-        env = math.exp(-t * 120)
-        val = (math.sin(2 * math.pi * 800 * t) * 0.4 +
-               math.sin(2 * math.pi * 1200 * t) * 0.2) * env
+        # 指数衰减包络（缓慢衰减，声音持续更久）
+        env = math.exp(-t * 5)
+        val = (math.sin(2 * math.pi * 800 * t) * 0.5 +
+               math.sin(2 * math.pi * 1200 * t) * 0.25 +
+               math.sin(2 * math.pi * 600 * t) * 0.15) * env
         samples.append(int(val * 32767))
     write_wav('click.wav', samples)
 
