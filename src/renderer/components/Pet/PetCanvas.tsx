@@ -5,7 +5,7 @@ import { useDraggable } from '../../hooks/useDraggable'
 import { SpriteAnimator } from './SpriteAnimator'
 import { StaticAnimator } from './StaticAnimator'
 import { ParticleSystem } from './ParticleSystem'
-import type { PetState, SkinManifest, SpritesheetAnimationConfig, StaticAnimationConfig } from '@shared/types'
+import type { PetState, SkinManifest, SpritesheetAnimationConfig } from '@shared/types'
 import { isStaticAnimationConfig } from '@shared/types'
 import { PET_RENDER_SIZE } from '@shared/constants'
 

@@ -49,8 +49,14 @@ my-skin/
 ├── happy.png        # 开心动画
 ├── sleeping.png     # 睡眠动画
 ├── error.png        # 出错动画
-└── preview.png      # 预览图（推荐 128×128）
+├── preview.png      # 预览图（推荐 128×128）
+└── sounds/          # 可选 — 皮肤专属音效
+    ├── click.wav    # 覆盖内置点击音
+    ├── complete.wav # 覆盖内置完成音
+    └── error.wav    # 覆盖内置错误音
 ```
+
+> 皮肤音效优先级：用户音效 > 皮肤音效 > 内置音效。只需放入想覆盖的同名文件即可。详见 [SOUND_GUIDE.md](./SOUND_GUIDE.md)。
 
 ## manifest.json 格式
 

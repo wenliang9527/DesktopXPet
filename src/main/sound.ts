@@ -8,6 +8,9 @@ const soundPaths: Map<string, string> = new Map()
 // 缓存音效的 data URL (base64),避免每次播放都读磁盘
 const soundDataUrls: Map<string, string> = new Map()
 
+// 当前皮肤的音效目录（皮肤切换时更新）
+let currentSkinSoundDir: string | null = null
+
 // 支持的音效文件扩展名及对应 MIME 类型
 const SOUND_EXTENSIONS: Record<string, string> = {
   '.wav': 'audio/wav',
@@ -41,8 +44,8 @@ async function ensureDir(dir: string): Promise<void> {
 }
 
 /**
- * 扫描目录下的所有音效文件，注册到 soundPaths
- * 后扫描的目录会覆盖先扫描的（实现用户目录优先于内置目录）
+ * 扫描目录下的所有音效文件，注册到 soundPaths / soundDataUrls
+ * 后扫描的目录会覆盖先扫描的（实现高优先级覆盖低优先级）
  */
 function scanSoundDir(dir: string): number {
   let count = 0
@@ -77,15 +80,25 @@ function scanSoundDir(dir: string): number {
   return count
 }
 
+/**
+ * 初始化音效系统
+ * 加载顺序: 内置音效 → 皮肤音效 → 用户音效（后者覆盖前者）
+ */
 export async function initSound(): Promise<void> {
   soundPaths.clear()
   soundDataUrls.clear()
 
-  // 1. 先加载内置音效目录（resources/sounds）— 打包后只读
+  // 1. 先加载内置音效目录（resources/sounds）— 最低优先级
   const builtinSoundDir = join(app.getAppPath(), 'resources', 'sounds')
   const builtinCount = scanSoundDir(builtinSoundDir)
 
-  // 2. 再加载用户音效目录（userData/sounds）— 可写，同名文件覆盖内置
+  // 2. 加载当前皮肤的音效目录（skin-dir/sounds/）— 中等优先级
+  let skinCount = 0
+  if (currentSkinSoundDir && fs.existsSync(currentSkinSoundDir)) {
+    skinCount = scanSoundDir(currentSkinSoundDir)
+  }
+
+  // 3. 最后加载用户音效目录（userData/sounds）— 最高优先级
   // 打包后 resources/ 在 app.asar 内只读，用户无法添加/替换音效
   // userData/sounds 是用户可写目录，用户可将音效文件放入此处
   const userSoundDir = join(app.getPath('userData'), 'sounds')
@@ -93,8 +106,21 @@ export async function initSound(): Promise<void> {
   const userCount = scanSoundDir(userSoundDir)
 
   log.info(
-    `Sound system initialized: ${soundPaths.size} sounds loaded (builtin: ${builtinCount}, user: ${userCount})`
+    `Sound system initialized: ${soundPaths.size} sounds loaded (builtin: ${builtinCount}, skin: ${skinCount}, user: ${userCount})`
   )
+}
+
+/**
+ * 设置当前皮肤的音效目录，并重新加载音效
+ * 切换皮肤时调用
+ */
+export async function setSkinSoundDir(skinDir: string | null): Promise<void> {
+  if (skinDir) {
+    currentSkinSoundDir = join(skinDir, 'sounds')
+  } else {
+    currentSkinSoundDir = null
+  }
+  await initSound()
 }
 
 /**

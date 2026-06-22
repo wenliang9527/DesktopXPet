@@ -16,7 +16,7 @@ import { SystemMonitorPlugin } from './plugins/system'
 import { GitHubPlugin } from './plugins/github'
 import { OllamaPlugin } from './plugins/ollama'
 import { SkinLoader } from './skin-loader'
-import { initSound } from './sound'
+import { initSound, setSkinSoundDir } from './sound'
 import { IPC } from '../shared/ipc-channels'
 import { SHUTDOWN_TIMEOUT } from '../shared/constants'
 import { container } from './container'
@@ -207,6 +207,16 @@ export async function initApp(): Promise<void> {
   customDirs.forEach((dir: string) => skinLoader.addDirectory(dir))
   await skinLoader.scan()
   container.register('skinLoader', skinLoader)
+
+  // 设置初始皮肤的音效目录
+  const currentSkinDirName = (store.get('skin.current') as string) || ''
+  if (currentSkinDirName) {
+    const skinList = skinLoader.getSkinList()
+    const skinEntry = skinList.find((s) => s.dirName === currentSkinDirName)
+    if (skinEntry) {
+      await setSkinSoundDir(skinEntry.path)
+    }
+  }
 
   setupIPC()
 

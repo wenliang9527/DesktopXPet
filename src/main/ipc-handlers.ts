@@ -4,7 +4,7 @@ import fs from 'fs'
 import { createLogger } from './utils/logger'
 const log = createLogger('IPC')
 import { getStore, getEffectivePollInterval } from './store'
-import { getSoundDataUrl, reloadSound, getUserSoundDir, setSoundEnabled } from './sound'
+import { getSoundDataUrl, reloadSound, getUserSoundDir, setSoundEnabled, setSkinSoundDir } from './sound'
 import { installSkinPackage } from './skin-installer'
 import { IPC } from '../shared/ipc-channels'
 import { DASHBOARD_WIDTH, DASHBOARD_HEIGHT } from '../shared/constants'
@@ -74,6 +74,16 @@ export function cycleNextSkin(): void {
   }
   log.info(`Skin switched to: ${nextSkin}`)
 
+  // 切换皮肤的音效目录
+  const skinDir = skinLoader?.getSkinDir(nextSkin) || null
+  // 注意: 皮肤目录名可能是 dirName，需要通过 getSkinList 查找完整路径
+  const skinList = skinLoader?.getSkinList() || []
+  const skinEntry = skinList.find((s) => s.dirName === nextSkin)
+  const resolvedDir = skinEntry?.path || skinDir
+  setSkinSoundDir(resolvedDir || null).catch((err) =>
+    log.warn('Failed to update skin sound dir:', err)
+  )
+
   const win = petWindow?.getWin()
   if (win) {
     win.webContents.send('skin:changed', nextSkin)
@@ -122,6 +132,10 @@ export function setupIPC(): void {
         } catch (err) {
           log.warn('Failed to persist skin to store:', err)
         }
+        // 切换皮肤音效
+        setSkinSoundDir(skin.path).catch((err) =>
+          log.warn('Failed to update skin sound dir:', err)
+        )
       },
     }))
 
@@ -254,6 +268,13 @@ export function setupIPC(): void {
     const win = container.get('petWindow')?.getWin()
     if (win) {
       win.webContents.send('skin:changed', name)
+    }
+    // 切换皮肤音效
+    const skinLoader = container.get('skinLoader')
+    const skinList = skinLoader?.getSkinList() || []
+    const skinEntry = skinList.find((s) => s.dirName === name)
+    if (skinEntry) {
+      await setSkinSoundDir(skinEntry.path)
     }
     log.info(`Skin switched via IPC: ${name}`)
   })

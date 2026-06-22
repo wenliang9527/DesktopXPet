@@ -309,7 +309,19 @@ if __name__ == '__main__':
 
 ## 五、安装与替换
 
-### 5.1 替换内置音效
+### 5.1 音效优先级
+
+系统按以下顺序加载音效，后者覆盖前者：
+
+| 优先级 | 目录 | 说明 |
+|--------|------|------|
+| 最低 | `resources/sounds/` | 内置音效，所有皮肤共享 |
+| 中等 | `resources/skins/<皮肤名>/sounds/` | 皮肤专属音效，切换皮肤时自动加载 |
+| 最高 | `%APPDATA%/desktopxpet/sounds/` | 用户自定义音效，全局覆盖 |
+
+> 只需放入同名文件即可覆盖，无需修改代码。
+
+### 5.2 替换内置音效
 
 直接覆盖 `resources/sounds/` 目录下的文件：
 
@@ -323,14 +335,45 @@ resources/sounds/
 
 重启应用后生效。
 
-### 5.2 开关音效
+### 5.3 添加皮肤专属音效
+
+在皮肤目录下创建 `sounds/` 子目录，放入同名音效文件：
+
+```
+my-skin/
+├── manifest.json
+├── idle.png
+├── working.png
+├── ...
+└── sounds/              ← 皮肤专属音效
+    ├── click.wav        ← 覆盖内置 click
+    ├── complete.wav     ← 覆盖内置 complete
+    └── error.wav        ← 覆盖内置 error
+```
+
+- 切换到该皮肤时自动加载其专属音效
+- 切回其他皮肤时恢复默认音效
+- 不需要每个音效都有，只放想覆盖的即可
+- 也可通过右键宠物 → `🎵 打开音效目录` 打开用户音效目录
+
+### 5.4 用户自定义音效
+
+将音效文件放入用户数据目录，全局覆盖所有皮肤的音效：
+
+- **Windows:** `%APPDATA%/desktopxpet/sounds/`
+- **macOS:** `~/Library/Application Support/desktopxpet/sounds/`
+- **Linux:** `~/.config/desktopxpet/sounds/`
+
+也可通过右键宠物 → `🎵 打开音效目录` 直接打开该目录。
+
+### 5.5 开关音效
 
 在仪表盘 → 设置面板中：
 
 - **点击音效** — 控制 `click.wav` 的播放（不影响 complete 和 error）
 - complete 和 error 音效目前无独立开关，可通过设置系统通知开关间接控制
 
-### 5.3 音量调节
+### 5.6 音量调节
 
 当前音量固定为 `0.5`，如需修改，编辑 [src/preload/index.ts](../src/preload/index.ts)：
 
@@ -500,7 +543,20 @@ aplay complete.wav
 
 **Q: 可以让不同皮肤有不同的音效吗？**
 
-当前不支持，所有皮肤共用同一套音效。这是规划中的功能（见 [OPTIMIZATION_AND_FEATURES.md](./OPTIMIZATION_AND_FEATURES.md) 3.1.2 节），计划通过 manifest.json 的 `sounds` 字段实现皮肤专属音效。
+可以！在皮肤目录下创建 `sounds/` 子目录，放入同名音效文件即可。音效优先级：用户音效 > 皮肤音效 > 内置音效。
+
+```
+my-skin/
+├── manifest.json
+├── idle.png
+├── sounds/          ← 皮肤专属音效
+│   ├── click.wav    ← 覆盖内置 click
+│   ├── complete.wav ← 覆盖内置 complete
+│   └── error.wav    ← 覆盖内置 error
+└── preview.png
+```
+
+切换到该皮肤时自动加载其专属音效，切回其他皮肤时恢复默认音效。详见 [SKIN_GUIDE.md](./SKIN_GUIDE.md) 的音效章节。
 
 **Q: complete 音效为什么有时不播放？**
 
