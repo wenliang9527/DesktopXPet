@@ -311,6 +311,10 @@ export class MonitorService {
     status.newCompleted = hasNew
 
     // 状态变化检测：按 tool 名称匹配比较（而非索引），避免数组顺序变化导致误判
+    // 注意：去重逻辑基于主进程侧的 latestStatus，但渲染进程的 petState 可能被
+    // 其他操作（点击、唤醒等）修改为不同值。因此去重条件要宽松：
+    // - 只在所有工具都是 idle 且 petState 没变时才跳过广播
+    // - working 状态下始终广播（summary 可能变化，且需要保证渲染进程状态一致）
     if (this.latestStatus && !hasNew) {
       const prev = this.latestStatus
       const stateChanged = prev.petState !== status.petState
@@ -334,17 +338,27 @@ export class MonitorService {
           return prevTool && prevTool.status === 'working' && prevTool.summary !== t.summary
         })
 
-      if (!stateChanged && !toolsChanged && !summaryChanged) {
-        // 状态未变化，更新 latestStatus 但不广播
+      // working 状态下始终广播（保证渲染进程状态一致，即使主进程侧状态没变）
+      const isWorkingBroadcast = status.petState === 'working'
+
+      if (!stateChanged && !toolsChanged && !summaryChanged && !isWorkingBroadcast) {
+        // 状态未变化且非 working，更新 latestStatus 但不广播
+        log.debug(
+          `emitUpdate skipped (no change): petState=${status.petState}, tools=[${status.tools.map((t) => `${t.tool}=${t.status}`).join(',')}]`
+        )
         this.latestStatus = status
         return
       }
+
+      log.debug(
+        `emitUpdate broadcast reason: stateChanged=${stateChanged}, toolsChanged=${toolsChanged}, summaryChanged=${summaryChanged}, isWorking=${isWorkingBroadcast}`
+      )
     }
 
     this.latestStatus = status
     this.lastBroadcastTime = now
-    log.debug(
-      `Status update: petState=${status.petState}, tools=${status.tools.length}, summary="${status.summary}", newCompleted=${hasNew}`
+    log.info(
+      `Status broadcast: petState=${status.petState}, tools=[${status.tools.map((t) => `${t.tool}=${t.status}`).join(',')}], summary="${status.summary}", newCompleted=${hasNew}`
     )
     this.onUpdate?.(status)
   }

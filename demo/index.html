@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DesktopXPet Demo - AI 工作监控桌面宠物</title>
+<style>
+/* ===== Reset & Base ===== */
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-primary:#0f0f1a;--bg-secondary:#1a1a2e;--bg-tertiary:#16213e;
+  --accent:#ff6b8a;--accent-glow:rgba(255,107,138,.25);
+  --accent2:#ff8a65;--accent3:#ab47bc;
+  --green:#66bb6a;--yellow:#ffa726;--red:#ef5350;--blue:#42a5f5;
+  --text:#e0e0e0;--text-dim:rgba(255,255,255,.5);--text-bright:#fff;
+  --card-bg:rgba(255,255,255,.06);--card-border:rgba(255,255,255,.08);
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 4px 24px rgba(0,0,0,.4);
+  --font:'Segoe UI','Microsoft YaHei',system-ui,sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg-primary);color:var(--text);font-family:var(--font);user-select:none}
+
+/* ===== Layout ===== */
+.app{display:flex;flex-direction:column;height:100vh}
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:linear-gradient(135deg,var(--bg-secondary),var(--bg-tertiary));border-bottom:1px solid var(--card-border);flex-shrink:0}
+.header-left{display:flex;align-items:center;gap:12px}
+.logo{font-size:22px;font-weight:700;color:var(--accent);letter-spacing:-.5px;text-shadow:0 0 20px var(--accent-glow)}
+.logo span{color:var(--text-bright);font-weight:400}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;background:linear-gradient(135deg,rgba(255,107,138,.2),rgba(171,71,188,.2));border:1px solid rgba(255,107,138,.3);color:var(--accent)}
+.badge::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse-dot 2s infinite}
+@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+.header-right{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}
+.header-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse-dot 3s infinite}
+
+.main{display:flex;flex:1;overflow:hidden}
+
+/* ===== Pet Area ===== */
+.pet-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;overflow:hidden;background:radial-gradient(ellipse at center,rgba(255,107,138,.04) 0%,transparent 70%)}
+.pet-area::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3Cpattern id='g' width='60' height='60' patternUnits='userSpaceOnUse'%3E%3Ccircle cx='30' cy='30' r='.5' fill='rgba(255,255,255,0.03)'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='60' height='60' fill='url(%23g)'/%3E%3C/svg%3E");pointer-events:none}
+
+.pet-float{position:relative;display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 8px 32px rgba(0,0,0,.5)) drop-shadow(0 2px 8px rgba(0,0,0,.3));transition:filter .4s}
+.pet-float:hover{filter:drop-shadow(0 12px 40px rgba(0,0,0,.6)) drop-shadow(0 0 20px var(--accent-glow))}
+
+#petCanvas{cursor:pointer;transition:transform .3s}
+#petCanvas:hover{transform:scale(1.03)}
+#petCanvas:active{transform:scale(.97)}
+
+/* Status Bubble */
+.status-bubble{margin-top:12px;background:rgba(0,0,0,.8);color:#fff;padding:8px 16px;border-radius:16px;font-size:12px;text-align:center;backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.1);max-width:220px;transition:all .3s;box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.status-bubble .bubble-state{font-weight:700;font-size:13px;margin-bottom:2px}
+.status-bubble .bubble-summary{color:rgba(255,255,255,.7);font-size:11px}
+
+/* Particle Canvas */
+#particleCanvas{position:absolute;inset:0;pointer-events:none;z-index:10}
+
+/* ===== Control Panel ===== */
+.panel{width:320px;flex-shrink:0;background:linear-gradient(180deg,var(--bg-secondary),var(--bg-primary));border-left:1px solid var(--card-border);overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:16px}
+.panel::-webkit-scrollbar{width:4px}
+.panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+
+.section{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);padding:16px;backdrop-filter:blur(4px)}
+.section-title{font-size:13px;font-weight:700;color:var(--text-bright);margin-bottom:12px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.5px}
+.section-title .icon{font-size:14px}
+
+/* State Buttons */
+.state-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.state-grid .full-width{grid-column:1/-1}
+.state-btn{padding:8px 4px;border:1px solid rgba(255,255,255,.1);border-radius:var(--radius-sm);background:rgba(255,255,255,.04);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;text-align:center;font-family:var(--font)}
+.state-btn:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);transform:translateY(-1px)}
+.state-btn.active{background:linear-gradient(135deg,rgba(255,107,138,.2),rgba(171,71,188,.2));border-color:var(--accent);color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.state-btn .state-icon{font-size:18px;display:block;margin-bottom:2px}
+
+/* Skin Buttons */
+.skin-grid{display:flex;flex-direction:column;gap:6px}
+.skin-btn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.1);border-radius:var(--radius-sm);background:rgba(255,255,255,.04);color:var(--text);font-size:12px;cursor:pointer;transition:all .2s;font-family:var(--font)}
+.skin-btn:hover{background:rgba(255,255,255,.1);transform:translateX(2px)}
+.skin-btn.active{background:linear-gradient(135deg,rgba(255,107,138,.15),rgba(171,71,188,.15));border-color:var(--accent)}
+.skin-preview-dot{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.2);flex-shrink:0}
+.skin-info{flex:1}
+.skin-name{font-weight:600;font-size:12px}
+.skin-desc{font-size:10px;color:var(--text-dim);margin-top:1px}
+
+/* Push API */
+.api-section{display:flex;flex-direction:column;gap:8px}
+.api-input-group{display:flex;gap:6px}
+.api-input{flex:1;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#fff;font-size:11px;font-family:var(--font);outline:none;transition:border-color .2s}
+.api-input:focus{border-color:var(--accent)}
+.api-input::placeholder{color:rgba(255,255,255,.3)}
+.api-btn{padding:8px 14px;border:none;border-radius:var(--radius-sm);background:linear-gradient(135deg,var(--accent),var(--accent3));color:#fff;font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font);white-space:nowrap}
+.api-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px var(--accent-glow)}
+.api-btn:active{transform:scale(.97)}
+.api-log{max-height:100px;overflow-y:auto;font-size:10px;color:var(--text-dim);background:rgba(0,0,0,.3);border-radius:6px;padding:8px;font-family:'Cascadia Code','Fira Code',monospace;line-height:1.6}
+.api-log::-webkit-scrollbar{width:3px}
+.api-log::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+.log-entry{padding:1px 0;border-bottom:1px solid rgba(255,255,255,.03)}
+.log-time{color:rgba(255,255,255,.3)}
+.log-ok{color:var(--green)}
+.log-err{color:var(--red)}
+
+/* Dashboard */
+.dash-grid{display:flex;flex-direction:column;gap:6px}
+.dash-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:var(--radius-sm);border:1px solid rgba(255,255,255,.04);transition:background .2s}
+.dash-row:hover{background:rgba(255,255,255,.07)}
+.dash-icon{font-size:16px;flex-shrink:0;width:24px;text-align:center}
+.dash-name{flex:1;font-size:11px;font-weight:600}
+.dash-status{font-size:9px;padding:2px 8px;border-radius:10px;font-weight:600;text-transform:uppercase}
+.dash-status.idle{background:rgba(158,158,158,.2);color:#9e9e9e}
+.dash-status.working{background:rgba(102,187,106,.2);color:var(--green)}
+.dash-status.completed{background:rgba(66,165,245,.2);color:var(--blue)}
+.dash-status.error{background:rgba(239,83,80,.2);color:var(--red)}
+.dash-summary{font-size:9px;color:var(--text-dim);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ===== Footer ===== */
+.footer{display:flex;align-items:center;justify-content:center;gap:16px;padding:8px 24px;background:var(--bg-secondary);border-top:1px solid var(--card-border);font-size:11px;color:var(--text-dim);flex-shrink:0}
+.footer a{color:var(--accent);text-decoration:none}
+.footer a:hover{text-decoration:underline}
+.footer-sep{color:rgba(255,255,255,.15)}
+
+/* ===== Toast ===== */
+.toast-container{position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 20px;border-radius:var(--radius-sm);color:#fff;font-size:12px;font-weight:500;backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.1);animation:toast-in .3s ease;box-shadow:var(--shadow);max-width:300px}
+.toast.success{background:rgba(102,187,106,.9)}
+.toast.error{background:rgba(239,83,80,.9)}
+.toast.info{background:rgba(66,165,245,.9)}
+@keyframes toast-in{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+@keyframes toast-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(40px)}}
+
+/* ===== Loading Overlay ===== */
+.loading-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(15,15,26,.6);z-index:5;opacity:0;pointer-events:none;transition:opacity .3s}
+.loading-overlay.show{opacity:1;pointer-events:auto}
+.loading-spinner{width:32px;height:32px;border:3px solid rgba(255,255,255,.1);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===== Responsive ===== */
+@media(max-width:768px){
+  .main{flex-direction:column}
+  .panel{width:100%;max-height:40vh;border-left:none;border-top:1px solid var(--card-border)}
+  .pet-area{min-height:50vh}
+  .header{padding:8px 16px}
+  .logo{font-size:18px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">Desktop<span>XPet</span></div>
+      <div class="badge">学习工作赛道</div>
+    </div>
+    <div class="header-right">
+      <div class="header-dot"></div>
+      <span>API :9527</span>
+      <span class="footer-sep">|</span>
+      <span id="clockDisplay">00:00:00</span>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Pet Area -->
+    <div class="pet-area">
+      <canvas id="particleCanvas"></canvas>
+      <div class="pet-float">
+        <canvas id="petCanvas" width="256" height="256"></canvas>
+        <div class="status-bubble" id="statusBubble">
+          <div class="bubble-state" id="bubbleState">Idle</div>
+          <div class="bubble-summary" id="bubbleSummary">等待中...</div>
+        </div>
+      </div>
+      <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+      </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="panel">
+      <!-- State Switcher -->
+      <div class="section">
+        <div class="section-title"><span class="icon">🎬</span> 状态切换</div>
+        <div class="state-grid">
+          <button class="state-btn active" data-state="idle" onclick="setState('idle')">
+            <span class="state-icon">🐱</span>待机
+          </button>
+          <button class="state-btn" data-state="working" onclick="setState('working')">
+            <span class="state-icon">⌨️</span>工作
+          </button>
+          <button class="state-btn" data-state="happy" onclick="setState('happy')">
+            <span class="state-icon">🎉</span>开心
+          </button>
+          <button class="state-btn" data-state="sleeping" onclick="setState('sleeping')">
+            <span class="state-icon">😴</span>睡眠
+          </button>
+          <button class="state-btn" data-state="error" onclick="setState('error')">
+            <span class="state-icon">😰</span>出错
+          </button>
+        </div>
+      </div>
+
+      <!-- Skin Switcher -->
+      <div class="section">
+        <div class="section-title"><span class="icon">🎨</span> 皮肤切换</div>
+        <div class="skin-grid">
+          <button class="skin-btn active" data-skin="default-cat" onclick="setSkin('default-cat')">
+            <div class="skin-preview-dot" style="background:linear-gradient(135deg,#ff9800,#f57c00)"></div>
+            <div class="skin-info">
+              <div class="skin-name">橘猫</div>
+              <div class="skin-desc">默认猫咪 · 像素精灵表动画</div>
+            </div>
+          </button>
+          <button class="skin-btn" data-skin="butterfly-swordsman-hd" onclick="setSkin('butterfly-swordsman-hd')">
+            <div class="skin-preview-dot" style="background:linear-gradient(135deg,#ab47bc,#80deea)"></div>
+            <div class="skin-info">
+              <div class="skin-name">蝴蝶忍 HD</div>
+              <div class="skin-desc">鬼灭之刃 · HD静态插画</div>
+            </div>
+          </button>
+          <button class="skin-btn" data-skin="reze" onclick="setSkin('reze')">
+            <div class="skin-preview-dot" style="background:linear-gradient(135deg,#37474f,#66bb6a)"></div>
+            <div class="skin-info">
+              <div class="skin-name">蕾塞 Reze</div>
+              <div class="skin-desc">电锯人 · HD静态插画</div>
+            </div>
+          </button>
+          <button class="skin-btn" data-skin="professional-team" onclick="setSkin('professional-team')">
+            <div class="skin-preview-dot" style="background:linear-gradient(135deg,#8d6e63,#78909c)"></div>
+            <div class="skin-info">
+              <div class="skin-name">张伟</div>
+              <div class="skin-desc">爱情公寓 · HD静态插画</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- HTTP Push API -->
+      <div class="section">
+        <div class="section-title"><span class="icon">📡</span> HTTP Push API 模拟</div>
+        <div class="api-section">
+          <div class="api-input-group">
+            <input class="api-input" id="apiTool" placeholder="工具名 (如 claude-code)" value="claude-code">
+            <select class="api-input" id="apiStatus" style="flex:.6">
+              <option value="working">working</option>
+              <option value="completed">completed</option>
+              <option value="error">error</option>
+              <option value="idle">idle</option>
+            </select>
+          </div>
+          <div class="api-input-group">
+            <input class="api-input" id="apiSummary" placeholder="状态摘要" value="正在生成代码...">
+            <button class="api-btn" onclick="simulatePush()">发送推送</button>
+          </div>
+          <div class="api-log" id="apiLog">
+            <div class="log-entry"><span class="log-time">[系统]</span> API 服务器就绪 · <span class="log-ok">localhost:9527</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dashboard -->
+      <div class="section">
+        <div class="section-title"><span class="icon">📊</span> 工具状态面板</div>
+        <div class="dash-grid" id="dashGrid">
+          <!-- filled by JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>DesktopXPet v1.0</span>
+    <span class="footer-sep">|</span>
+    <span>Electron + React + TypeScript</span>
+    <span class="footer-sep">|</span>
+    <a href="https://github.com/wenliang9527/DesktopXPet" target="_blank">GitHub</a>
+  </footer>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+// ============================================================
+//  DesktopXPet Demo - 使用真实皮肤图片渲染
+// ============================================================
+
+// ----- State -----
+let currentState = 'idle';
+let currentSkin = 'default-cat';
+let animFrame = 0;
+let animTimer = 0;
+let lastTime = 0;
+let particles = [];
+let skinOpacity = 1;
+let skinTransitioning = false;
+
+// ----- Skin Config -----
+const SKINS = {
+  'default-cat': {
+    name: '橘猫',
+    renderMode: 'spritesheet',
+    path: 'skins/default-cat/',
+    frameSize: { width: 128, height: 128 },
+    displayScale: 0.8,
+    animations: {
+      idle:    { frames: 4, fps: 4 },
+      working: { frames: 6, fps: 8 },
+      happy:   { frames: 4, fps: 6 },
+      sleeping:{ frames: 2, fps: 1 },
+      error:   { frames: 3, fps: 4 },
+    },
+  },
+  'butterfly-swordsman-hd': {
+    name: '蝴蝶忍 HD',
+    renderMode: 'static',
+    path: 'skins/butterfly-swordsman-hd/',
+    frameSize: { width: 384, height: 384 },
+    displayScale: 0.85,
+    animations: {
+      idle:    { effects: [{ type:'float', speed:1.0, intensity:4 }, { type:'breathe', speed:1.0, intensity:0.012 }] },
+      working:{ effects: [{ type:'breathe', speed:1.5, intensity:0.01 }] },
+      happy:  { effects: [{ type:'bounce', speed:2.0, intensity:8 }, { type:'sway', speed:1.5, intensity:0.03 }] },
+      sleeping:{ effects: [{ type:'breathe', speed:0.5, intensity:0.02 }, { type:'float', speed:0.3, intensity:2 }] },
+      error:  { effects: [{ type:'bounce', speed:3.0, intensity:6 }, { type:'sway', speed:2.0, intensity:0.05 }] },
+    },
+  },
+  'reze': {
+    name: '蕾塞 Reze',
+    renderMode: 'static',
+    path: 'skins/reze/',
+    frameSize: { width: 384, height: 384 },
+    displayScale: 0.85,
+    animations: {
+      idle:    { effects: [{ type:'float', speed:1.0, intensity:4 }, { type:'breathe', speed:1.0, intensity:0.012 }] },
+      working:{ effects: [{ type:'breathe', speed:1.5, intensity:0.01 }, { type:'sway', speed:0.8, intensity:0.02 }] },
+      happy:  { effects: [{ type:'bounce', speed:2.0, intensity:8 }, { type:'sway', speed:1.5, intensity:0.03 }] },
+      sleeping:{ effects: [{ type:'breathe', speed:0.5, intensity:0.02 }, { type:'float', speed:0.3, intensity:2 }] },
+      error:  { effects: [{ type:'bounce', speed:3.0, intensity:7 }, { type:'sway', speed:2.5, intensity:0.05 }] },
+    },
+  },
+  'professional-team': {
+    name: '张伟',
+    renderMode: 'static',
+    path: 'skins/professional-team/',
+    frameSize: { width: 384, height: 384 },
+    displayScale: 0.85,
+    animations: {
+      idle:    { effects: [{ type:'float', speed:0.8, intensity:3 }, { type:'breathe', speed:1.0, intensity:0.012 }] },
+      working:{ effects: [{ type:'breathe', speed:1.2, intensity:0.01 }, { type:'sway', speed:0.5, intensity:0.015 }] },
+      happy:  { effects: [{ type:'bounce', speed:2.5, intensity:10 }, { type:'sway', speed:2.0, intensity:0.04 }] },
+      sleeping:{ effects: [{ type:'breathe', speed:0.4, intensity:0.025 }, { type:'float', speed:0.2, intensity:1.5 }] },
+      error:  { effects: [{ type:'bounce', speed:3.5, intensity:7 }, { type:'sway', speed:2.5, intensity:0.06 }] },
+    },
+  },
+};
+
+// ----- Image Cache -----
+// { skinId: { state: HTMLImageElement } }
+const imageCache = {};
+const STATE_LIST = ['idle', 'working', 'happy', 'sleeping', 'error'];
+
+function getImageUrl(skinId, state) {
+  return SKINS[skinId].path + state + '.png';
+}
+
+function preloadSkin(skinId) {
+  return new Promise((resolve) => {
+    if (imageCache[skinId] && imageCache[skinId]._loaded) {
+      resolve();
+      return;
+    }
+    imageCache[skinId] = imageCache[skinId] || {};
+    let loaded = 0;
+    const total = STATE_LIST.length;
+    STATE_LIST.forEach(state => {
+      if (imageCache[skinId][state] && imageCache[skinId][state].complete) {
+        loaded++;
+        if (loaded === total) {
+          imageCache[skinId]._loaded = true;
+          resolve();
+        }
+        return;
+      }
+      const img = new Image();
+      img.onload = img.onerror = () => {
+        loaded++;
+        if (loaded === total) {
+          imageCache[skinId]._loaded = true;
+          resolve();
+        }
+      };
+      img.src = getImageUrl(skinId, state);
+      imageCache[skinId][state] = img;
+    });
+  });
+}
+
+// ----- Dashboard Tools -----
+const tools = [
+  { id: 'claude-code', icon: '🧠', name: 'Claude Code', status: 'idle', summary: '等待中' },
+  { id: 'trae', icon: '🚀', name: 'Trae', status: 'idle', summary: '等待中' },
+  { id: 'cursor', icon: '📝', name: 'Cursor', status: 'idle', summary: '等待中' },
+  { id: 'copilot', icon: '🤖', name: 'Copilot', status: 'idle', summary: '等待中' },
+  { id: 'ollama', icon: '🦙', name: 'Ollama', status: 'idle', summary: '等待中' },
+  { id: 'github', icon: '🐙', name: 'GitHub', status: 'idle', summary: '等待中' },
+];
+
+// ----- Canvas Setup -----
+const petCanvas = document.getElementById('petCanvas');
+const petCtx = petCanvas.getContext('2d');
+const partCanvas = document.getElementById('particleCanvas');
+const partCtx = partCanvas.getContext('2d');
+
+function resizeParticleCanvas() {
+  const area = document.querySelector('.pet-area');
+  partCanvas.width = area.clientWidth;
+  partCanvas.height = area.clientHeight;
+}
+window.addEventListener('resize', resizeParticleCanvas);
+resizeParticleCanvas();
+
+// ----- Sound Engine (Web Audio API) -----
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playBeep(freq = 800, dur = 0.08, vol = 0.15) {
+  try {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + dur);
+  } catch(e) {}
+}
+
+function playClick() { playBeep(880, 0.06, 0.12); }
+function playHappy() {
+  playBeep(523, 0.1, 0.15);
+  setTimeout(() => playBeep(659, 0.1, 0.15), 100);
+  setTimeout(() => playBeep(784, 0.15, 0.15), 200);
+}
+function playError() { playBeep(200, 0.2, 0.15); }
+function playComplete() {
+  playBeep(660, 0.08, 0.12);
+  setTimeout(() => playBeep(880, 0.08, 0.12), 80);
+  setTimeout(() => playBeep(1100, 0.12, 0.12), 160);
+}
+
+// ============================================================
+//  Spritesheet Renderer (for default-cat)
+// ============================================================
+function drawSpritesheet(ctx, skinId, state, frame) {
+  const skinConfig = SKINS[skinId];
+  const animConfig = skinConfig.animations[state];
+  const img = imageCache[skinId] && imageCache[skinId][state];
+  if (!img || !img.complete || !img.naturalWidth) return;
+
+  const totalFrames = animConfig.frames;
+  const currentFrame = Math.floor(frame) % totalFrames;
+  const frameWidth = img.naturalWidth / totalFrames;
+
+  ctx.clearRect(0, 0, 256, 256);
+
+  // Pixel art: disable smoothing for crisp rendering
+  ctx.imageSmoothingEnabled = false;
+
+  // Calculate display size - scale up pixel art to fit nicely
+  const displaySize = 256 * skinConfig.displayScale;
+  const offsetX = (256 - displaySize) / 2;
+  const offsetY = (256 - displaySize) / 2;
+
+  ctx.drawImage(
+    img,
+    currentFrame * frameWidth, 0, frameWidth, img.naturalHeight,
+    offsetX, offsetY, displaySize, displaySize
+  );
+}
+
+// ============================================================
+//  Static HD Renderer (for butterfly-swordsman-hd, reze, professional-team)
+//  Applies canvas transforms based on animation effects from manifest
+// ============================================================
+function drawStaticHD(ctx, skinId, state, timestamp) {
+  const skinConfig = SKINS[skinId];
+  const animConfig = skinConfig.animations[state];
+  const img = imageCache[skinId] && imageCache[skinId][state];
+  if (!img || !img.complete || !img.naturalWidth) return;
+
+  ctx.clearRect(0, 0, 256, 256);
+  ctx.save();
+
+  // Move origin to center of canvas
+  ctx.translate(128, 128);
+
+  // Apply effects from manifest
+  const t = timestamp / 1000;
+  if (animConfig && animConfig.effects) {
+    for (const eff of animConfig.effects) {
+      switch (eff.type) {
+        case 'float':
+          ctx.translate(0, Math.sin(t * eff.speed) * eff.intensity);
+          break;
+        case 'breathe':
+          const s = 1 + Math.sin(t * eff.speed) * eff.intensity;
+          ctx.scale(s, s);
+          break;
+        case 'bounce':
+          ctx.translate(0, -Math.abs(Math.sin(t * eff.speed)) * eff.intensity);
+          break;
+        case 'sway':
+          ctx.rotate(Math.sin(t * eff.speed) * eff.intensity);
+          break;
+      }
+    }
+  }
+
+  // Move origin back
+  ctx.translate(-128, -128);
+
+  // Draw the image centered and scaled to fit 256x256
+  const displaySize = 256 * skinConfig.displayScale;
+  const offsetX = (256 - displaySize) / 2;
+  const offsetY = (256 - displaySize) / 2;
+
+  ctx.drawImage(img, offsetX, offsetY, displaySize, displaySize);
+
+  ctx.restore();
+}
+
+// ============================================================
+//  Pet Drawing Dispatcher
+// ============================================================
+function drawPet(ctx, state, frame, skin, timestamp) {
+  const skinConfig = SKINS[skin];
+  if (!skinConfig) return;
+
+  ctx.globalAlpha = skinOpacity;
+
+  if (skinConfig.renderMode === 'spritesheet') {
+    drawSpritesheet(ctx, skin, state, frame);
+  } else {
+    drawStaticHD(ctx, skin, state, timestamp);
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+// ----- Particle System -----
+function spawnParticles(type) {
+  const area = document.querySelector('.pet-area');
+  const cx = area.clientWidth / 2;
+  const cy = area.clientHeight / 2 - 30;
+
+  if (type === 'happy') {
+    for (let i = 0; i < 8; i++) {
+      particles.push({
+        x: cx + (Math.random() - 0.5) * 120,
+        y: cy + (Math.random() - 0.5) * 80,
+        vx: (Math.random() - 0.5) * 3,
+        vy: -Math.random() * 2 - 1,
+        life: 1,
+        decay: 0.01 + Math.random() * 0.02,
+        size: 3 + Math.random() * 4,
+        color: ['#ffeb3b', '#fff176', '#ffe082', '#ffd54f'][Math.floor(Math.random() * 4)],
+        type: 'star',
+      });
+    }
+  } else if (type === 'sleeping') {
+    particles.push({
+      x: cx + 40 + Math.random() * 20,
+      y: cy - 20,
+      vx: 0.5 + Math.random() * 0.5,
+      vy: -0.8 - Math.random() * 0.5,
+      life: 1,
+      decay: 0.008,
+      size: 14 + Math.random() * 6,
+      char: 'Z',
+      color: 'rgba(144,202,249,',
+      type: 'zzz',
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= p.decay;
+    if (p.life <= 0) {
+      particles.splice(i, 1);
+    }
+  }
+}
+
+function drawParticles() {
+  partCtx.clearRect(0, 0, partCanvas.width, partCanvas.height);
+  for (const p of particles) {
+    if (p.type === 'star') {
+      partCtx.save();
+      partCtx.globalAlpha = p.life;
+      partCtx.fillStyle = p.color;
+      const s = p.size;
+      partCtx.fillRect(p.x - s/6, p.y - s/2, s/3, s);
+      partCtx.fillRect(p.x - s/2, p.y - s/6, s, s/3);
+      partCtx.restore();
+    } else if (p.type === 'zzz') {
+      partCtx.save();
+      partCtx.globalAlpha = p.life * 0.8;
+      partCtx.fillStyle = p.color + (p.life * 0.8) + ')';
+      partCtx.font = `bold ${p.size}px monospace`;
+      partCtx.fillText(p.char, p.x, p.y);
+      partCtx.restore();
+    }
+  }
+}
+
+// ----- State Management -----
+const STATE_LABELS = {
+  idle: { state: 'Idle', summary: '等待中...' },
+  working: { state: 'Working', summary: '正在努力工作...' },
+  happy: { state: 'Happy', summary: '任务完成！' },
+  sleeping: { state: 'Sleeping', summary: 'zzZ 休息中...' },
+  error: { state: 'Error', summary: '出错了...' },
+};
+
+function setState(state) {
+  currentState = state;
+  animFrame = 0;
+  animTimer = 0;
+
+  document.querySelectorAll('.state-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.state === state);
+  });
+
+  const label = STATE_LABELS[state];
+  document.getElementById('bubbleState').textContent = label.state;
+  document.getElementById('bubbleSummary').textContent = label.summary;
+
+  if (state === 'happy') playHappy();
+  else if (state === 'error') playError();
+  else playClick();
+
+  particles = [];
+}
+
+function setSkin(skin) {
+  if (skin === currentSkin || skinTransitioning) return;
+  skinTransitioning = true;
+
+  const overlay = document.getElementById('loadingOverlay');
+  overlay.classList.add('show');
+
+  // Fade out
+  const fadeOutStart = performance.now();
+  const fadeOutDuration = 200;
+
+  function fadeOutStep(now) {
+    const progress = Math.min((now - fadeOutStart) / fadeOutDuration, 1);
+    skinOpacity = 1 - progress;
+    if (progress < 1) {
+      requestAnimationFrame(fadeOutStep);
+    } else {
+      // Load new skin
+      preloadSkin(skin).then(() => {
+        currentSkin = skin;
+        animFrame = 0;
+        animTimer = 0;
+
+        document.querySelectorAll('.skin-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.skin === skin);
+        });
+
+        // Update canvas rendering mode
+        const skinConfig = SKINS[skin];
+        if (skinConfig.renderMode === 'spritesheet') {
+          petCanvas.style.imageRendering = 'pixelated';
+        } else {
+          petCanvas.style.imageRendering = 'auto';
+        }
+
+        overlay.classList.remove('show');
+
+        // Fade in
+        const fadeInStart = performance.now();
+        const fadeInDuration = 300;
+
+        function fadeInStep(now2) {
+          const progress2 = Math.min((now2 - fadeInStart) / fadeInDuration, 1);
+          skinOpacity = progress2;
+          if (progress2 < 1) {
+            requestAnimationFrame(fadeInStep);
+          } else {
+            skinOpacity = 1;
+            skinTransitioning = false;
+          }
+        }
+        requestAnimationFrame(fadeInStep);
+
+        playClick();
+      });
+    }
+  }
+  requestAnimationFrame(fadeOutStep);
+}
+
+// ----- HTTP Push Simulation -----
+function simulatePush() {
+  const tool = document.getElementById('apiTool').value.trim() || 'unknown';
+  const status = document.getElementById('apiStatus').value;
+  const summary = document.getElementById('apiSummary').value.trim() || '无摘要';
+
+  const log = document.getElementById('apiLog');
+  const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">[${time}]</span> POST /api/status → <span class="log-ok">200</span> {tool:"${tool}", status:"${status}"}`;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+
+  const dashTool = tools.find(t => t.id === tool);
+  if (dashTool) {
+    dashTool.status = status;
+    dashTool.summary = summary;
+    renderDashboard();
+  }
+
+  const stateMap = { working: 'working', completed: 'happy', error: 'error', idle: 'idle' };
+  const newState = stateMap[status] || 'idle';
+  setState(newState);
+
+  document.getElementById('bubbleSummary').textContent = `${tool}: ${summary}`;
+
+  showToast(`收到推送: ${tool} → ${status}`, status === 'error' ? 'error' : 'success');
+
+  if (status === 'completed') playComplete();
+}
+
+// ----- Dashboard -----
+function renderDashboard() {
+  const grid = document.getElementById('dashGrid');
+  grid.innerHTML = tools.map(t => `
+    <div class="dash-row">
+      <div class="dash-icon">${t.icon}</div>
+      <div class="dash-name">${t.name}</div>
+      <div class="dash-status ${t.status}">${t.status}</div>
+      <div class="dash-summary" title="${t.summary}">${t.summary}</div>
+    </div>
+  `).join('');
+}
+
+// ----- Toast -----
+function showToast(msg, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'toast-out .3s ease forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 2500);
+}
+
+// ----- Clock -----
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clockDisplay').textContent =
+    now.toLocaleTimeString('zh-CN', { hour12: false });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ----- Pet Click -----
+petCanvas.addEventListener('click', () => {
+  playClick();
+  if (currentState === 'idle') {
+    setState('happy');
+    setTimeout(() => {
+      if (currentState === 'happy') setState('idle');
+    }, 2000);
+  }
+});
+
+// ----- Main Animation Loop -----
+let particleSpawnTimer = 0;
+
+function gameLoop(timestamp) {
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+
+  const skinConfig = SKINS[currentSkin];
+  if (!skinConfig) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
+  // Spritesheet frame advancement
+  if (skinConfig.renderMode === 'spritesheet') {
+    const animConfig = skinConfig.animations[currentState];
+    if (animConfig) {
+      const fps = animConfig.fps;
+      const frameInterval = 1000 / fps;
+      animTimer += dt;
+      if (animTimer >= frameInterval) {
+        animFrame += 1;
+        animTimer -= frameInterval;
+        // Prevent spiral of death
+        if (animTimer > frameInterval * 2) animTimer = 0;
+      }
+    }
+  }
+
+  drawPet(petCtx, currentState, animFrame, currentSkin, timestamp);
+
+  particleSpawnTimer += dt;
+  if (particleSpawnTimer > 200) {
+    particleSpawnTimer = 0;
+    if (currentState === 'happy') spawnParticles('happy');
+    if (currentState === 'sleeping') spawnParticles('sleeping');
+  }
+
+  updateParticles(dt);
+  drawParticles();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ----- Init -----
+(async function init() {
+  // Preload default skin
+  await preloadSkin('default-cat');
+
+  // Set initial canvas rendering mode
+  petCanvas.style.imageRendering = 'pixelated';
+
+  renderDashboard();
+  requestAnimationFrame(gameLoop);
+})();
+</script>
+</body>
+</html>

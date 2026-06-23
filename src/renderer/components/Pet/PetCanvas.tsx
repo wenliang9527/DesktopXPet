@@ -492,12 +492,19 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     const dpr = dprRef.current
     const pixel = ctx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
     if (pixel[3] > 0) {
+      // 点击时临时切换到 happy，2 秒后恢复到监控状态而非强制 idle
+      // （避免覆盖监控推送的 working 状态）
+      const prevPetState = useAppStore.getState().petState
       useAppStore.getState().setPetState('happy')
       window.desktopXPet.playSound('click')
       if (clickTimerRef.current) clearTimeout(clickTimerRef.current)
       clickTimerRef.current = setTimeout(() => {
         clickTimerRef.current = null
-        useAppStore.getState().setPetState('idle')
+        // 恢复到点击前的状态，如果监控已更新则由 setMonitorData 覆盖
+        const currentPetState = useAppStore.getState().petState
+        if (currentPetState === 'happy') {
+          useAppStore.getState().setPetState(prevPetState === 'happy' ? 'idle' : prevPetState)
+        }
       }, 2000)
     }
   }, [])
