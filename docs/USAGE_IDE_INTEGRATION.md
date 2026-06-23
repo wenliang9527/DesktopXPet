@@ -1,6 +1,6 @@
 # IDE 扩展接入
 
-DesktopXPet 提供一个 VS Code 扩展，支持所有基于 VS Code 的 IDE：**Trae**、**Cursor**、**Windsurf**、**VS Code**。
+DesktopXPet 提供一个 VS Code 扩展，支持所有基于 VS Code 的 IDE。安装后自动检测 IDE 类型并推送工作状态。
 
 ## 支持的 IDE
 
@@ -11,12 +11,15 @@ DesktopXPet 提供一个 VS Code 扩展，支持所有基于 VS Code 的 IDE：*
 | Cursor | `cursor` | 📝 | 基础编辑器事件 |
 | Windsurf | `windsurf` | 🏄 | 基础编辑器事件 |
 | VS Code | `vscode` | 💙 | 基础编辑器事件 |
+| Cline (VS Code 扩展) | `cline` | 📐 | 通过 IDE 扩展自动监控 |
+| Roo Code (VS Code 扩展) | `roo` | 🦘 | 通过 IDE 扩展自动监控 |
+| Continue (VS Code 扩展) | `continue` | ▶️ | 通过 IDE 扩展自动监控 |
 
-## 安装方式
+---
 
-### 方式 1：开发调试（推荐首次使用）
+## 快速安装
 
-1. 编译扩展：
+### 步骤 1：编译扩展
 
 ```bash
 cd extensions/desktopxpet-monitor
@@ -24,21 +27,79 @@ npm install
 npm run compile
 ```
 
-2. 在 IDE 中打开 `extensions/desktopxpet-monitor` 目录
-
-3. 按 `F5` 启动扩展调试（会打开一个新的 IDE 窗口）
-
-### 方式 2：打包 VSIX 安装
+### 步骤 2：打包 VSIX
 
 ```bash
-cd extensions/desktopxpet-monitor
-npm install
-npm run compile
 npx vsce package
 ```
 
-生成 `.vsix` 文件后，在 IDE 中：
-- `Ctrl+Shift+P` → `Extensions: Install from VSIX` → 选择生成的 `.vsix`
+生成 `desktopxpet-monitor-0.3.0.vsix` 文件。
+
+### 步骤 3：在 IDE 中安装
+
+在各 IDE 中安装 VSIX 文件：
+
+---
+
+## Trae
+
+```
+Ctrl+Shift+P → Extensions: Install from VSIX → 选择 desktopxpet-monitor-0.3.0.vsix
+```
+
+安装后扩展自动激活，状态栏显示 `XPet: Trae Idle`。
+
+Trae 额外支持 **AI 状态检测**（Chat/Builder），无需额外配置，默认开启。
+
+---
+
+## Cursor
+
+```
+Ctrl+Shift+P → Extensions: Install from VSIX → 选择 desktopxpet-monitor-0.3.0.vsix
+```
+
+安装后扩展自动激活，状态栏显示 `XPet: Cursor Idle`。
+
+---
+
+## VS Code
+
+```
+Ctrl+Shift+P → Extensions: Install from VSIX → 选择 desktopxpet-monitor-0.3.0.vsix
+```
+
+安装后扩展自动激活，状态栏显示 `XPet: VS Code Idle`。
+
+---
+
+## Windsurf
+
+```
+Ctrl+Shift+P → Extensions: Install from VSIX → 选择 desktopxpet-monitor-0.3.0.vsix
+```
+
+安装后扩展自动激活，状态栏显示 `XPet: Windsurf Idle`。
+
+---
+
+## Cline / Roo Code / Continue
+
+这些是 VS Code 系 IDE 内的 AI 编程扩展。安装 DesktopXPet Monitor 扩展后，会自动监控编辑器活动（包括 AI 扩展触发的文件变更），无需额外配置。
+
+安装方式同上，在宿主 IDE（VS Code / Cursor / Trae 等）中安装 VSIX 即可。
+
+---
+
+## 开发调试模式
+
+如果需要调试扩展代码：
+
+1. 在 IDE 中打开 `extensions/desktopxpet-monitor` 目录
+2. 按 `F5` 启动扩展调试（会打开一个新的 IDE 窗口）
+3. 在新窗口中编辑文件，观察状态栏和宠物反应
+
+---
 
 ## 配置项
 
@@ -63,6 +124,8 @@ npx vsce package
 }
 ```
 
+---
+
 ## 监控的事件
 
 扩展会监听以下编辑器事件并推送状态：
@@ -74,6 +137,8 @@ npx vsce package
 | 输入内容 | `working` | `Editing App.tsx:42 (TypeScript)` |
 | 切换可见编辑器 | `working` | `Editing utils.ts:1 (TypeScript)` |
 | 闲置超时 | `idle` | `No activity` |
+
+---
 
 ## Trae AI 状态检测
 
@@ -117,6 +182,8 @@ Trae 没有公开的 AI 状态 API，扩展通过多种信号综合判断 AI 工
 
 或通过命令面板：`DesktopXPet Monitor: Toggle Trae AI Monitor`
 
+---
+
 ## 状态栏指示器
 
 IDE 底部状态栏显示：
@@ -128,6 +195,8 @@ IDE 底部状态栏显示：
 | 连接错误 | `⚠️ XPet: Error` | 红色背景 |
 | 完成 | `✅ XPet: Done` | 默认 |
 
+---
+
 ## 命令
 
 | 命令 | 说明 |
@@ -136,14 +205,22 @@ IDE 底部状态栏显示：
 | `DesktopXPet Monitor: Show Status` | 查看当前连接状态（Trae 额外显示 AI 状态） |
 | `DesktopXPet Monitor: Toggle Trae AI Monitor` | 启用/禁用 Trae AI 状态检测 |
 
+---
+
 ## 多 IDE 同时使用
 
-如果同时打开 Trae 和 Cursor，两个 IDE 都安装扩展，它们会各自推送状态：
+如果同时打开多个 IDE，每个都安装扩展，它们会各自推送状态：
 
-- Trae 推送 `tool: "trae"`
-- Cursor 推送 `tool: "cursor"`
+| IDE | 推送 tool 名 | 图标 |
+|-----|-------------|------|
+| Trae | `trae` | 🚀 |
+| Cursor | `cursor` | 📝 |
+| VS Code | `vscode` | 💙 |
+| Windsurf | `windsurf` | 🏄 |
 
-宠物会同时显示两个工具的工作状态，气泡显示 `2 个工具并行中`。
+宠物会同时显示所有活跃工具的工作状态，气泡显示 `2 个工具并行中`。
+
+---
 
 ## 故障排查
 

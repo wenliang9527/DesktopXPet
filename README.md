@@ -154,48 +154,87 @@ npm run build
 
 ## 外部工具接入
 
-DesktopXPet 支持两种接入方式：**IDE 扩展**和 **CLI 脚本**。
+DesktopXPet 支持三种接入方式：**IDE 扩展**、**CLI 脚本**和 **HTTP API**。
 
 ### 接入方式一览
 
 | 方式 | 适用工具 | 文档 |
 |------|----------|------|
-| IDE 扩展 | Trae / Cursor / Windsurf / VS Code | [IDE 扩展接入](./docs/USAGE_IDE_INTEGRATION.md) |
-| CLI 脚本 | Claude Code / OpenCode / Aider / 任意 CLI | [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md) |
+| IDE 扩展 | Trae / Cursor / Windsurf / VS Code / Cline / Roo | [IDE 扩展接入](./docs/USAGE_IDE_INTEGRATION.md) |
+| CLI 脚本 | Claude Code / OpenCode / Aider / Copilot CLI / Codex | [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md) |
 | HTTP API | 任意能发 HTTP 请求的程序 | [HTTP API 参考](./docs/USAGE_API_REFERENCE.md) |
 
-### 快速示例
-
-**IDE 扩展**（Trae / Cursor）：
+### IDE 扩展（Trae / Cursor / VS Code 等）
 
 ```bash
 cd extensions/desktopxpet-monitor
 npm install && npm run compile
-# 在 IDE 中按 F5 调试运行
+npx vsce package
+# 在 IDE 中 Install from VSIX → 选择生成的 .vsix 文件
 ```
 
-**CLI 推送**（Claude Code / OpenCode）：
+### Claude Code（Hooks）
 
 ```bash
-# Bash
-./tools/xpet-notify.sh claude-code working "Generating code..."
+# 1. 复制通知脚本
+cp tools/xpet-notify.sh ~/.xpet/ && chmod +x ~/.xpet/xpet-notify.sh
 
-# PowerShell
-.\tools\xpet-notify.ps1 -Tool claude-code -Status working -Summary "Generating code..."
+# 2. 在 .claude/settings.json 中添加：
 ```
 
-**HTTP API**：
+```json
+{
+  "hooks": {
+    "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code working \"Claude Code: executing tool...\"" }] }],
+    "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code completed \"Claude Code: tool completed\"" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code idle \"Claude Code: session ended\"" }] }]
+  }
+}
+```
+
+### OpenCode（Hooks）
+
+```bash
+cp tools/xpet-notify.sh ~/.xpet/ && chmod +x ~/.xpet/xpet-notify.sh
+# 在 opencode 配置中添加：
+```
+
+```json
+{
+  "hooks": {
+    "on_message_start": "bash ~/.xpet/xpet-notify.sh opencode working \"OpenCode: processing...\"",
+    "on_message_end": "bash ~/.xpet/xpet-notify.sh opencode completed \"OpenCode: response done\"",
+    "on_error": "bash ~/.xpet/xpet-notify.sh opencode error \"OpenCode: error occurred\""
+  }
+}
+```
+
+### Aider（Wrapper）
+
+```bash
+cat > ~/.local/bin/aider-xpet.sh << 'EOF'
+#!/usr/bin/env bash
+~/.xpet/xpet-notify.sh aider working "Aider: starting..."
+aider "$@"
+~/.xpet/xpet-notify.sh aider completed "Aider: done"
+EOF
+chmod +x ~/.local/bin/aider-xpet.sh && alias aider='~/.local/bin/aider-xpet.sh'
+```
+
+### HTTP API（任意工具）
 
 ```bash
 curl -X POST http://127.0.0.1:9527/api/status \
   -H "Content-Type: application/json" \
   -H "x-pet-token: YOUR_TOKEN" \
-  -d '{"tool":"claude-code","status":"working","summary":"正在重构认证模块"}'
+  -d '{"tool":"my-tool","status":"working","summary":"正在工作..."}'
 ```
 
 `status` 取值: `idle` | `working` | `error` | `completed`
 
 Token 在首次启动时自动生成，保存在 `~/.xpet/config.json`。
+
+> 完整接入说明请参阅 [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md)，包含 Windows PowerShell 版本和更多工具（Copilot CLI / Codex / Cline 等）
 
 ## 宠物状态机
 
@@ -312,10 +351,11 @@ npm run preview
 | 文档 | 说明 |
 |------|------|
 | [启动与基础使用](./docs/USAGE_GETTING_STARTED.md) | 安装、启动、宠物交互、快捷键、配置 |
-| [IDE 扩展接入](./docs/USAGE_IDE_INTEGRATION.md) | Trae / Cursor / Windsurf / VS Code 扩展安装与配置 |
-| [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md) | Claude Code / OpenCode / Aider 等 CLI 工具接入 |
+| [IDE 扩展接入](./docs/USAGE_IDE_INTEGRATION.md) | Trae / Cursor / Windsurf / VS Code / Cline / Roo / Continue 扩展安装 |
+| [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md) | Claude Code / OpenCode / Aider / Copilot CLI / Codex 等 CLI 工具接入 |
 | [仪表盘与多任务监控](./docs/USAGE_DASHBOARD.md) | 仪表盘布局、多工具并行监控、状态聚合规则 |
 | [皮肤系统](./docs/USAGE_SKINS.md) | 皮肤切换、文件结构、自定义皮肤目录 |
+| [音效系统](./docs/SOUND_GUIDE.md) | 音效制作、皮肤专属音效、用户自定义音效 |
 | [HTTP API 参考](./docs/USAGE_API_REFERENCE.md) | API 端点、请求格式、认证、聚合规则 |
 
 ### 开发文档
@@ -324,7 +364,7 @@ npm run preview
 |------|------|
 | [PLAN.md](./docs/PLAN.md) | 项目总体计划与架构设计 |
 | [IMPLEMENTATION.md](./docs/IMPLEMENTATION.md) | 详细实施指南（数据流、IPC、API、插件接入） |
-| [SKIN_GUIDE.md](./docs/SKIN_GUIDE.md) | 皮肤制作完整指南（程序化/AI辅助/手绘） |
+| [SKIN_GUIDE.md](./docs/SKIN_GUIDE.md) | 皮肤制作完整指南（两种渲染模式、两种动画模式） |
 | [SOUND_GUIDE.md](./docs/SOUND_GUIDE.md) | 提示音制作完整指南（程序化/DAW/在线工具） |
 | [OPTIMIZATION_AND_FEATURES.md](./docs/OPTIMIZATION_AND_FEATURES.md) | 优化方向与新功能建议 |
 | [REFACTOR_PLAN.md](./docs/REFACTOR_PLAN.md) | 架构优化计划与执行记录 |

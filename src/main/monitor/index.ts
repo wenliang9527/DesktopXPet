@@ -19,6 +19,10 @@ export class MonitorService {
   private notifiedCompletedKeys: Set<string> = new Set()
   // 用户配置的默认轮询间隔,覆盖各插件硬编码的 pollInterval
   private defaultPollInterval: number
+  // 定期强制同步定时器（兜底：保证渲染进程状态最终一致）
+  private syncTimer: ReturnType<typeof setInterval> | null = null
+  // 上次广播时间戳，用于强制同步间隔控制
+  private lastBroadcastTime = 0
 
   constructor(registry: PluginRegistry, onUpdate?: (status: AggregatedStatus) => void, defaultPollInterval: number = DEFAULT_POLL_INTERVAL) {
     this.registry = registry
@@ -47,6 +51,10 @@ export class MonitorService {
     for (const plugin of plugins) {
       this.startPlugin(plugin)
     }
+    // 启动定期强制同步（每 30 秒广播一次当前状态，保证渲染进程最终一致）
+    this.syncTimer = setInterval(() => {
+      this.forceSync()
+    }, 30_000)
     log.info(`MonitorService started with ${plugins.length} plugins`)
   }
 
@@ -87,6 +95,10 @@ export class MonitorService {
       clearInterval(timer)
     }
     this.timers.clear()
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer)
+      this.syncTimer = null
+    }
     log.info('MonitorService stopped all plugins')
   }
 
@@ -258,8 +270,9 @@ export class MonitorService {
    * 通知去重：同一 completed 事件（tool + timestamp）在 30 秒窗口内只标记一次 newCompleted，
    * 避免 happy 状态持续期间每次轮询都重复触发通知/声音。UI 的 petState 动画不受影响。
    *
-   * 状态变化检测：如果关键状态字段（petState、tools 的 tool/status/summary、newCompleted）
-   * 都没有变化，跳过广播，避免不必要的 IPC 和 React 重渲染。
+   * 状态变化检测：如果关键状态字段（petState、tools 的 tool/status）没有变化，
+   * 且非 working 状态的 summary 也没变，跳过广播以减少不必要的 IPC 和 React 重渲染。
+   * 但 working 状态下 summary 变化（如编辑的文件/行号变化）会触发广播，保证用户看到最新信息。
    */
   private emitUpdate(): void {
     const status = this.aggregateAll()
@@ -297,20 +310,31 @@ export class MonitorService {
 
     status.newCompleted = hasNew
 
-    // 状态变化检测：只比较结构性字段（petState、tool 列表、各 tool 的 status）。
-    // 不比较 summary，因为 summary 可能包含每次轮询都变化的易变值（如 CPU%），
-    // 会导致 idle 状态下持续广播。summary 仍会更新到 latestStatus，供 getSnapshot 使用。
+    // 状态变化检测：按 tool 名称匹配比较（而非索引），避免数组顺序变化导致误判
     if (this.latestStatus && !hasNew) {
       const prev = this.latestStatus
       const stateChanged = prev.petState !== status.petState
+
+      // 按名称构建 map 比较，避免索引错位
+      const prevMap = new Map(prev.tools.map((t) => [t.tool, t]))
+      const curMap = new Map(status.tools.map((t) => [t.tool, t]))
+
       const toolsChanged =
-        prev.tools.length !== status.tools.length ||
-        prev.tools.some((t, i) => {
-          const cur = status.tools[i]
-          return !cur || t.tool !== cur.tool || t.status !== cur.status
+        prevMap.size !== curMap.size ||
+        status.tools.some((t) => {
+          const prevTool = prevMap.get(t.tool)
+          return !prevTool || prevTool.status !== t.status
         })
 
-      if (!stateChanged && !toolsChanged) {
+      // working 状态下，summary 变化也要广播（用户能看到当前编辑的文件/行号）
+      const summaryChanged =
+        status.petState === 'working' &&
+        status.tools.some((t) => {
+          const prevTool = prevMap.get(t.tool)
+          return prevTool && prevTool.status === 'working' && prevTool.summary !== t.summary
+        })
+
+      if (!stateChanged && !toolsChanged && !summaryChanged) {
         // 状态未变化，更新 latestStatus 但不广播
         this.latestStatus = status
         return
@@ -318,9 +342,26 @@ export class MonitorService {
     }
 
     this.latestStatus = status
+    this.lastBroadcastTime = now
     log.debug(
       `Status update: petState=${status.petState}, tools=${status.tools.length}, summary="${status.summary}", newCompleted=${hasNew}`
     )
     this.onUpdate?.(status)
+  }
+
+  /**
+   * 强制同步当前状态到渲染进程（兜底机制）
+   * 每 30 秒触发一次，保证渲染进程状态最终一致。
+   * 如果距离上次广播超过 30 秒，重新广播当前状态。
+   */
+  private forceSync(): void {
+    if (!this.latestStatus) return
+    const now = Date.now()
+    // 距离上次广播超过 30 秒才强制同步，避免与正常广播重复
+    if (now - this.lastBroadcastTime >= 30_000) {
+      log.debug('Force sync: re-broadcasting current status')
+      this.onUpdate?.(this.latestStatus)
+      this.lastBroadcastTime = now
+    }
   }
 }
