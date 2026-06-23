@@ -1,8 +1,10 @@
+<div align="center">
+
 # DesktopXPet
 
-AI 工作监控桌面宠物 — 通过可爱的像素风角色实时展示你的 AI 编码工具工作状态。
+**AI 工作监控桌面宠物**
 
-<div align="center">
+通过可爱的像素风角色，实时展示你的 AI 编码工具工作状态
 
 ```
   /\_/\  
@@ -10,116 +12,56 @@ AI 工作监控桌面宠物 — 通过可爱的像素风角色实时展示你的
   > ^ <
 ```
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Electron](https://img.shields.io/badge/Electron-36-47848F?logo=electron)](https://www.electronjs.org/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)](https://www.typescriptlang.org/)
+
 </div>
 
-## 功能特性
+---
 
-- **透明悬浮宠物** — 无边框透明窗口，始终置顶，鼠标穿透（仅角色区域可交互）
-- **实时状态监控** — 通过插件系统接入多种 AI 工具，宠物动画随工作状态自动切换
-- **多工具并行监控** — 同时监控 Trae / Cursor / VS Code / Claude Code / OpenCode / Aider 等多个 AI 工具
-- **精灵图动画引擎** — Canvas 2D 渲染，支持高 DPI，像素风锐利放大，按状态动态降频省电
-- **多窗口架构** — 宠物窗口（常驻）+ 仪表盘窗口（按需打开），IPC 共享状态
-- **插件化监控** — 内置 System / GitHub / Ollama 插件，支持自定义扩展
-- **HTTP Push API** — `localhost:9527` 接收外部工具状态推送，token 校验
-- **IDE 扩展** — 支持 Trae / Cursor / Windsurf / VS Code，自动检测 IDE 类型
-- **CLI 接入** — 提供 Bash / PowerShell 脚本，支持 Claude Code hooks / OpenCode / Aider
-- **皮肤系统** — 内置 5 套皮肤（橘猫 / 蝴蝶剑士标准版+HD版 / 蕾塞 / 专业团队），支持 64×64、128×128、384×384 多种帧规格，支持本地目录加载和自定义皮肤包
-- **.xpet 一键安装** — 拖拽 `.xpet` 皮肤包到宠物窗口即可自动安装（含 zip slip 防护和 manifest 校验）
-- **皮肤预览** — 仪表盘皮肤选择器悬停时播放 idle 动画预览，支持音效试听
-- **番茄钟提醒** — 内置番茄工作法计时器（25分钟工作+5分钟休息循环），到时自动通知+音效
-- **全局快捷键** — `Ctrl+Shift+P` 显隐宠物 / `Ctrl+Shift+D` 打开仪表盘 / `Ctrl+Shift+S` 切换皮肤
-- **系统托盘** — 托盘图标 + 右键菜单，双击显隐宠物
-- **闲置睡眠** — 长时间无操作自动进入睡眠状态，鼠标靠近唤醒
-- **位置记忆** — 拖拽移动宠物位置，退出后下次启动自动恢复
-- **安全沙箱** — 渲染进程 sandbox 隔离 + CSP 内容安全策略 + IPC 路径白名单
+## ✨ 功能特性
 
-## 技术栈
+| 类别 | 特性 |
+|------|------|
+| 🐱 **桌面宠物** | 透明悬浮、始终置顶、鼠标穿透、拖拽移动、位置记忆 |
+| 🎬 **动画引擎** | Canvas 2D 渲染、高 DPI 支持、像素风锐利放大、动态降频省电 |
+| 📡 **实时监控** | 插件系统 + HTTP Push API，宠物动画随工作状态自动切换 |
+| 🎨 **皮肤系统** | 内置 5 套皮肤、拖拽 `.xpet` 一键安装、支持像素风/高清风/静态立绘 |
+| 🔊 **音效系统** | 内置音效、皮肤专属音效、用户自定义音效、三级优先级覆盖 |
+| 🍅 **番茄钟** | 25 分钟工作 + 5 分钟休息循环，到时自动通知 + 音效 |
+| ⌨️ **全局快捷键** | `Ctrl+Shift+P` 显隐 / `Ctrl+Shift+D` 仪表盘 / `Ctrl+Shift+S` 切换皮肤 |
+| 😴 **闲置睡眠** | 长时间无操作自动睡眠，鼠标靠近唤醒 |
+| 🔒 **安全沙箱** | 渲染进程 sandbox 隔离 + CSP + IPC 路径白名单 |
 
-| 层 | 技术 |
-|---|---|
-| 运行时 | Electron 36 |
-| 构建 | electron-vite + Vite 6 + electron-builder |
-| UI | React 18 + TypeScript 5 |
-| 状态管理 | Zustand 5 |
-| 持久化 | electron-store |
-| 日志 | electron-log |
-| 动画 | Canvas 2D (requestAnimationFrame) |
-| 代码质量 | ESLint 9 + Prettier + husky + lint-staged |
-| Schema 校验 | zod 4 |
+---
 
-## 项目结构
+## 🛠 支持的工具
 
-```
-DesktopXPet/
-├── src/
-│   ├── main/                    # Electron 主进程
-│   │   ├── index.ts             # 入口：app.whenReady + 错误处理
-│   │   ├── bootstrap.ts         # 初始化流程 + 优雅关闭
-│   │   ├── ipc-handlers.ts      # IPC 处理器 + 仪表盘/皮肤切换
-│   │   ├── window.ts            # 宠物窗口管理（透明、穿透、DPI）
-│   │   ├── tray.ts              # 系统托盘 + 右键菜单
-│   │   ├── shortcuts.ts         # 全局快捷键
-│   │   ├── store.ts             # electron-store 配置持久化
-│   │   ├── skin-loader.ts       # 皮肤资源扫描与加载（zod 校验）
-│   │   ├── skin-installer.ts    # .xpet 皮肤包安装（zip 解压 + 安全防护）
-│   │   ├── notify.ts            # 系统通知（防轰炸）
-│   │   ├── container.ts         # 依赖注入容器
-│   │   ├── server/api.ts        # HTTP API 服务器 (localhost:9527)
-│   │   ├── monitor/             # 监控调度
-│   │   │   ├── index.ts         # MonitorService（Poll + Push 聚合）
-│   │   │   └── registry.ts      # PluginRegistry（插件注册中心）
-│   │   └── plugins/             # 内置插件
-│   │       ├── system.ts        # 系统资源监控（CPU/内存）
-│   │       ├── github.ts        # GitHub 活动监控
-│   │       └── ollama.ts        # Ollama 本地 AI 监控
-│   ├── preload/                 # 预加载脚本（contextBridge，强类型）
-│   │   └── index.ts
-│   ├── renderer/                # React 渲染进程
-│   │   ├── App.tsx              # 根组件（宠物窗口 + 拖拽安装）
-│   │   ├── main.tsx             # React 入口
-│   │   ├── components/
-│   │   │   ├── Pet/
-│   │   │   │   ├── PetCanvas.tsx         # Canvas 宠物渲染（动态帧率）
-│   │   │   │   ├── SpriteAnimator.ts     # 精灵图动画引擎
-│   │   │   │   └── PetStateMachine.ts    # 状态机逻辑
-│   │   │   ├── Dashboard/Dashboard.tsx   # 仪表盘窗口
-│   │   │   ├── Settings/Settings.tsx     # 设置面板
-│   │   │   ├── SkinSelector/
-│   │   │   │   ├── SkinSelector.tsx      # 皮肤选择器
-│   │   │   │   └── SkinPreviewCanvas.tsx # 皮肤动画预览
-│   │   │   ├── PomodoroTimer/PomodoroTimer.tsx  # 番茄钟
-│   │   │   ├── StatusBubble/StatusBubble.tsx   # 状态气泡
-│   │   │   └── StatusDetail/StatusDetailPopup.tsx  # 悬停详情
-│   │   ├── hooks/
-│   │   │   ├── useClickThrough.ts  # 窗口穿透（像素透明度检测）
-│   │   │   ├── useDraggable.ts     # 拖拽移动
-│   │   │   └── useIdleTimer.ts     # 闲置计时器
-│   │   ├── stores/appStore.ts      # Zustand 全局状态
-│   │   └── styles/global.css
-│   └── shared/                  # 主/渲染进程共享
-│       ├── types.ts             # 公共类型定义
-│       ├── constants.ts         # 常量（窗口尺寸、默认配置）
-│       ├── ipc-channels.ts      # IPC 通道名常量
-│       ├── skin-schema.ts       # zod 皮肤 manifest schema
-│       └── plugin-api.ts        # 插件接口定义
-├── resources/
-│   ├── skins/                   # 内置皮肤
-│   │   ├── default-cat/         # 橘猫（128×128）
-│   │   ├── butterfly-swordsman/ # 蝴蝶剑士（标准版 64×64）
-│   │   ├── butterfly-swordsman-hd/ # 蝴蝶剑士（HD版 384×384）
-│   │   ├── reze/                # 蕾塞（384×384）
-│   │   └── professional-team/   # 专业团队（384×384）
-│   ├── sounds/                  # 内置音效
-│   └── icons/                   # 应用图标
-├── tools/                       # 皮肤生成脚本 (Python)
-├── docs/                        # 项目文档
-│   ├── PLAN.md                  # 总体计划
-│   ├── IMPLEMENTATION.md        # 详细实施指南
-│   └── SKIN_GUIDE.md            # 皮肤制作指南
-└── package.json
-```
+### IDE 扩展（自动监控）
 
-## 快速开始
+| IDE | 图标 | AI 状态检测 |
+|-----|------|------------|
+| Trae | 🚀 | ✅ Chat / Builder |
+| Cursor | 📝 | 编辑器事件 |
+| VS Code | 💙 | 编辑器事件 |
+| Windsurf | 🏄 | 编辑器事件 |
+| Cline / Roo / Continue | 📐🦘▶️ | 通过 IDE 扩展自动监控 |
+
+### CLI 工具（Hooks / Wrapper）
+
+| 工具 | 图标 | 接入方式 |
+|------|------|---------|
+| Claude Code | 🧠 | Hooks |
+| OpenCode | ⚡ | Hooks |
+| Codex CLI | 🔵 | Hooks |
+| Aider | 🤝 | Shell Wrapper |
+| GitHub Copilot CLI | 🤖 | Shell Wrapper |
+
+---
+
+## 🚀 快速开始
 
 ### 环境要求
 
@@ -129,87 +71,71 @@ DesktopXPet/
 ### 安装与运行
 
 ```bash
-# 克隆项目
-git clone https://github.com/your-username/DesktopXPet.git
+git clone https://github.com/wenliang9527/DesktopXPet.git
 cd DesktopXPet
-
-# 安装依赖
 npm install
-
-# 开发模式运行
 npm run dev
 ```
-
-> 详细启动说明请参阅 [启动与基础使用](./docs/USAGE_GETTING_STARTED.md)
 
 ### 构建打包
 
 ```bash
-# 构建 + 打包 Windows 安装程序
-npm run build:win
-
-# 仅构建（不打包）
-npm run build
+npm run build:win    # 构建 + 打包 Windows 安装程序
+npm run build        # 仅构建（不打包）
 ```
 
-## 外部工具接入
+> 详细启动说明请参阅 [启动与基础使用](./docs/USAGE_GETTING_STARTED.md)
 
-DesktopXPet 支持三种接入方式：**IDE 扩展**、**CLI 脚本**和 **HTTP API**。
+---
 
-### 接入方式一览
+## 🔌 外部工具接入
 
-| 方式 | 适用工具 | 文档 |
-|------|----------|------|
-| IDE 扩展 | Trae / Cursor / Windsurf / VS Code / Cline / Roo | [IDE 扩展接入](./docs/USAGE_IDE_INTEGRATION.md) |
-| CLI 脚本 | Claude Code / OpenCode / Aider / Copilot CLI / Codex | [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md) |
-| HTTP API | 任意能发 HTTP 请求的程序 | [HTTP API 参考](./docs/USAGE_API_REFERENCE.md) |
-
-### IDE 扩展（Trae / Cursor / VS Code 等）
+### IDE 扩展
 
 ```bash
 cd extensions/desktopxpet-monitor
 npm install && npm run compile
 npx vsce package
-# 在 IDE 中 Install from VSIX → 选择生成的 .vsix 文件
+# 在 IDE 中 Ctrl+Shift+P → Install from VSIX → 选择 .vsix 文件
 ```
 
-### Claude Code（Hooks）
+### Claude Code
 
 ```bash
-# 1. 复制通知脚本
 cp tools/xpet-notify.sh ~/.xpet/ && chmod +x ~/.xpet/xpet-notify.sh
-
-# 2. 在 .claude/settings.json 中添加：
 ```
+
+在 `.claude/settings.json` 中添加：
 
 ```json
 {
   "hooks": {
-    "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code working \"Claude Code: executing tool...\"" }] }],
-    "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code completed \"Claude Code: tool completed\"" }] }],
+    "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code working \"Claude Code: executing...\"" }] }],
+    "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code completed \"Claude Code: completed\"" }] }],
     "Stop": [{ "hooks": [{ "type": "command", "command": "bash ~/.xpet/xpet-notify.sh claude-code idle \"Claude Code: session ended\"" }] }]
   }
 }
 ```
 
-### OpenCode（Hooks）
+### OpenCode
 
 ```bash
 cp tools/xpet-notify.sh ~/.xpet/ && chmod +x ~/.xpet/xpet-notify.sh
-# 在 opencode 配置中添加：
 ```
+
+在 OpenCode 配置中添加：
 
 ```json
 {
   "hooks": {
     "on_message_start": "bash ~/.xpet/xpet-notify.sh opencode working \"OpenCode: processing...\"",
-    "on_message_end": "bash ~/.xpet/xpet-notify.sh opencode completed \"OpenCode: response done\"",
-    "on_error": "bash ~/.xpet/xpet-notify.sh opencode error \"OpenCode: error occurred\""
+    "on_message_end": "bash ~/.xpet/xpet-notify.sh opencode completed \"OpenCode: done\"",
+    "on_error": "bash ~/.xpet/xpet-notify.sh opencode error \"OpenCode: error\""
   }
 }
 ```
 
-### Aider（Wrapper）
+### Aider
 
 ```bash
 cat > ~/.local/bin/aider-xpet.sh << 'EOF'
@@ -230,13 +156,15 @@ curl -X POST http://127.0.0.1:9527/api/status \
   -d '{"tool":"my-tool","status":"working","summary":"正在工作..."}'
 ```
 
-`status` 取值: `idle` | `working` | `error` | `completed`
+`status` 取值：`idle` | `working` | `error` | `completed`
 
 Token 在首次启动时自动生成，保存在 `~/.xpet/config.json`。
 
-> 完整接入说明请参阅 [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md)，包含 Windows PowerShell 版本和更多工具（Copilot CLI / Codex / Cline 等）
+> 完整接入说明（含 Windows PowerShell 版本、Copilot CLI、Codex、Cline 等）请参阅 [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md)
 
-## 宠物状态机
+---
+
+## 🐾 宠物状态机
 
 ```
          ┌──────────┐
@@ -257,21 +185,27 @@ Token 在首次启动时自动生成，保存在 `~/.xpet/config.json`。
 └─────────┘            └──────────┘
 ```
 
-状态优先级: `error` > `working` > `happy` > `idle`
+状态优先级：`error` > `working` > `happy` > `idle`
 
-## 皮肤制作
+---
 
-每套皮肤是一个文件夹，包含 5 张精灵图 + manifest.json:
+## 🎨 皮肤系统
+
+每套皮肤是一个文件夹，包含精灵图 + `manifest.json`：
 
 ```
 my-skin/
 ├── manifest.json    # 皮肤元信息和动画配置
-├── idle.png         # 待机动画精灵图（横排多帧）
+├── idle.png         # 待机动画
 ├── working.png      # 工作动画
 ├── happy.png        # 开心动画
 ├── sleeping.png     # 睡眠动画
 ├── error.png        # 出错动画
-└── preview.png      # 预览图（推荐 128x128 或 256x256）
+├── preview.png      # 预览图
+└── sounds/          # 皮肤专属音效（可选）
+    ├── click.wav
+    ├── complete.wav
+    └── error.wav
 ```
 
 **两种渲染模式：**
@@ -281,8 +215,6 @@ my-skin/
 | 像素风 | ≤ 128×128 | 最近邻 (NEAREST) | 手绘像素画、程序化生成 |
 | 高清风 | 384×384 | 双线性 (BILINEAR) | AI 生成、高清插画 |
 
-系统根据 `frameSize` 自动判断渲染模式，角色在画布中水平居中、底部对齐，保持原始宽高比。
-
 **两种动画模式：**
 
 | 模式 | `renderMode` | 图片要求 | 适用场景 |
@@ -290,69 +222,79 @@ my-skin/
 | 精灵图动画 | `spritesheet`（默认） | 每种状态一张横排多帧精灵图 | 手绘/程序化多帧动画 |
 | 静态立绘 | `static` | 每种状态一张单张立绘 | AI 生成单张角色图 |
 
-静态立绘模式内置 4 种 Canvas 变换效果：浮动、呼吸、摇摆、弹跳，可自由组合叠加。
+**安装方式：** 拖拽 `.xpet` 包安装 / 手动复制到 `userData/skins/` / 自定义目录
 
-**安装方式：**
-1. **拖拽安装** — 将 `.xpet` 皮肤包拖到宠物窗口自动安装
-2. **手动安装** — 复制皮肤文件夹到 `userData/skins/` 目录
-3. **自定义目录** — 在设置中添加自定义皮肤目录
+> 详细说明请参阅 [皮肤系统](./docs/USAGE_SKINS.md) · [皮肤制作指南](./docs/SKIN_GUIDE.md) · [音效制作指南](./docs/SOUND_GUIDE.md)
 
-> 详细使用说明请参阅 [皮肤系统](./docs/USAGE_SKINS.md)
->
-> 制作指南请参阅 [SKIN_GUIDE.md](./docs/SKIN_GUIDE.md)
+---
 
-## 全局快捷键
+## ⌨️ 快捷键
 
 | 快捷键 | 功能 |
 |--------|------|
-| `Ctrl+Shift+P` | 显示/隐藏宠物 |
+| `Ctrl+Shift+P` | 显示 / 隐藏宠物 |
 | `Ctrl+Shift+D` | 打开仪表盘 |
 | `Ctrl+Shift+S` | 切换下一个皮肤 |
 
-## 配置存储
+---
 
-应用设置保存在 electron-store 中（`desktopxpet-config.json`），支持以下配置:
+## 🏗 技术栈
 
-- **宠物** — 位置、缩放、置顶、点击音效
-- **行为** — 闲置睡眠时间、通知开关、气泡开关
-- **监控** — 轮询间隔、插件启用/禁用
-- **皮肤** — 当前皮肤、自定义皮肤目录
-- **通用** — 开机自启、语言、主题
+| 层 | 技术 |
+|---|---|
+| 运行时 | Electron 36 |
+| 构建 | electron-vite + Vite 6 + electron-builder |
+| UI | React 18 + TypeScript 5 |
+| 状态管理 | Zustand 5 |
+| 持久化 | electron-store |
+| 动画 | Canvas 2D (requestAnimationFrame) |
+| 代码质量 | ESLint 9 + Prettier + husky + lint-staged |
+| Schema 校验 | zod 4 |
 
-## 开发
+---
 
-```bash
-# 类型检查
-npm run typecheck
+## 📁 项目结构
 
-# 代码检查
-npm run lint
-npm run lint:fix
-
-# 代码格式化
-npm run format
-
-# 开发模式（热重载）
-npm run dev
-
-# 构建预览
-npm run preview
+```
+DesktopXPet/
+├── src/
+│   ├── main/                    # Electron 主进程
+│   │   ├── bootstrap.ts         # 初始化流程 + 优雅关闭
+│   │   ├── ipc-handlers.ts      # IPC 处理器
+│   │   ├── window.ts            # 宠物窗口管理
+│   │   ├── tray.ts              # 系统托盘
+│   │   ├── skin-loader.ts       # 皮肤扫描与加载
+│   │   ├── skin-installer.ts    # .xpet 皮肤包安装
+│   │   ├── server/api.ts        # HTTP API 服务器
+│   │   ├── monitor/             # 监控调度
+│   │   └── plugins/             # 内置插件 (System/GitHub/Ollama)
+│   ├── preload/                 # 预加载脚本
+│   ├── renderer/                # React 渲染进程
+│   │   ├── components/Pet/      # 宠物渲染 + 动画引擎 + 状态机
+│   │   ├── components/Dashboard/ # 仪表盘
+│   │   └── stores/              # Zustand 全局状态
+│   └── shared/                  # 主/渲染进程共享类型与常量
+├── resources/
+│   ├── skins/                   # 内置皮肤（5 套）
+│   ├── sounds/                  # 内置音效
+│   └── icons/                   # 应用图标
+├── extensions/
+│   └── desktopxpet-monitor/     # VS Code 系 IDE 扩展
+├── tools/                       # CLI 通知脚本 + 皮肤生成脚本
+└── docs/                        # 项目文档
 ```
 
-**代码质量门禁：**
-- 提交时 husky 自动运行 lint-staged（ESLint + Prettier）
-- ESLint 9 flat config,TypeScript + React + React Hooks 规则
-- Prettier 统一格式化风格
+---
 
-## 文档
+## 📚 文档
 
 ### 使用文档
 
 | 文档 | 说明 |
 |------|------|
 | [启动与基础使用](./docs/USAGE_GETTING_STARTED.md) | 安装、启动、宠物交互、快捷键、配置 |
-| [IDE 扩展接入](./docs/USAGE_IDE_INTEGRATION.md) | Trae / Cursor / Windsurf / VS Code / Cline / Roo / Continue 扩展安装 |
-| [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md) | Claude Code / OpenCode / Aider / Copilot CLI / Codex 等 CLI 工具接入 |
+| [IDE 扩展接入](./docs/USAGE_IDE_INTEGRATION.md) | Trae / Cursor / Windsurf / VS Code / Cline / Roo / Continue |
+| [CLI 工具接入](./docs/USAGE_CLI_INTEGRATION.md) | Claude Code / OpenCode / Aider / Copilot CLI / Codex |
 | [仪表盘与多任务监控](./docs/USAGE_DASHBOARD.md) | 仪表盘布局、多工具并行监控、状态聚合规则 |
 | [皮肤系统](./docs/USAGE_SKINS.md) | 皮肤切换、文件结构、自定义皮肤目录 |
 | [音效系统](./docs/SOUND_GUIDE.md) | 音效制作、皮肤专属音效、用户自定义音效 |
@@ -369,6 +311,8 @@ npm run preview
 | [OPTIMIZATION_AND_FEATURES.md](./docs/OPTIMIZATION_AND_FEATURES.md) | 优化方向与新功能建议 |
 | [REFACTOR_PLAN.md](./docs/REFACTOR_PLAN.md) | 架构优化计划与执行记录 |
 
-## License
+---
 
-MIT
+## 📄 License
+
+[MIT](LICENSE)
