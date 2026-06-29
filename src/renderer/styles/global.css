@@ -49,6 +49,19 @@ body,
           drop-shadow(0 2px 6px rgba(0, 0, 0, 0.2));
 }
 
+/* 悬停窗口时：宠物上移，给下方工具详情面板腾空间 */
+.pet-container.window-hovered .pet-canvas {
+  transform: translateY(-30px);
+}
+
+.pet-container.window-hovered .pet-canvas:hover {
+  transform: translateY(-30px) scale(1.02);
+}
+
+.pet-container.window-hovered .pet-canvas:active {
+  transform: translateY(-30px) scale(0.97);
+}
+
 /* 状态气泡 */
 .status-bubble {
   background: rgba(0, 0, 0, 0.75);
@@ -165,12 +178,12 @@ body,
   font-size: 11px;
   font-family: 'Microsoft YaHei', sans-serif;
   width: 210px;
-  max-height: 160px;
+  max-height: 110px;
   overflow-y: auto;
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 1000;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .popup-header {
@@ -492,6 +505,114 @@ body,
   border-radius: 12px;
   padding: 22px;
   border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* HelpPanel 帮助文档面板 */
+.help-panel {
+  background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%);
+  border-radius: 12px;
+  padding: 22px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.help-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.help-tab {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.7);
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.help-tab:hover {
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.9);
+}
+
+.help-tab.active {
+  background: rgba(76, 175, 80, 0.25);
+  border-color: rgba(76, 175, 80, 0.4);
+  color: #81C784;
+}
+
+.help-content {
+  font-size: 13px;
+  line-height: 1.8;
+  color: rgba(255,255,255,0.85);
+}
+
+.help-content h4 {
+  font-size: 14px;
+  color: #fff;
+  margin-bottom: 8px;
+  margin-top: 14px;
+}
+
+.help-content h4:first-child {
+  margin-top: 0;
+}
+
+.help-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+
+.help-content th,
+.help-content td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  font-size: 12px;
+}
+
+.help-content th {
+  color: rgba(255,255,255,0.6);
+  font-weight: 600;
+}
+
+.help-content ul {
+  list-style: none;
+  padding: 0;
+}
+
+.help-content li {
+  padding: 4px 0;
+  padding-left: 16px;
+  position: relative;
+}
+
+.help-content li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: rgba(255,255,255,0.4);
+}
+
+.help-content code {
+  background: rgba(255,255,255,0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #81C784;
+}
+
+.help-footer {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.4);
+  font-size: 11px;
+  text-align: center;
 }
 
 .settings-section {
@@ -971,4 +1092,139 @@ body,
 .connected-tool-time {
   font-size: 10px;
   color: rgba(255,255,255,0.35);
+}
+
+/* 养成面板 */
+.nurture-panel {
+  background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.04) 100%);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.nurture-level-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.nurture-level {
+  font-size: 18px;
+  font-weight: 700;
+  color: #FFD54F;
+  min-width: 44px;
+}
+
+.nurture-xp-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.nurture-xp-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FFD54F, #FFA726);
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.nurture-xp-text {
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  min-width: 80px;
+  text-align: right;
+}
+
+.nurture-vitals {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.nurture-vital-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nurture-vital-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  min-width: 32px;
+}
+
+.nurture-vital-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.nurture-vital-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.nurture-vital-value {
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  min-width: 28px;
+  text-align: right;
+}
+
+.nurture-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+}
+
+.nurture-stats span {
+  background: rgba(255,255,255,0.05);
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+/* 养成警告气泡 */
+.bubble-nurture-warnings {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 193, 7, 0.3);
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.nurture-warning {
+  font-size: 10px;
+  color: #FFD54F;
+  background: rgba(255, 193, 7, 0.15);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+/* 互动反馈消息 */
+.bubble-interaction-message {
+  margin-top: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #FFD54F;
+  background: linear-gradient(90deg, rgba(255, 193, 7, 0.25), rgba(255, 107, 107, 0.2));
+  border-radius: 10px;
+  text-align: center;
+  animation: interactionPop 0.3s ease-out;
+}
+
+@keyframes interactionPop {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }

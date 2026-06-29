@@ -5,7 +5,6 @@ import type { SpritesheetAnimationConfig, SpriteFrame } from '@shared/types'
  * 关键优化：
  * - delta clamp 防止标签页不可见时 raf 停止导致的动画跳帧
  * - frameProgress 提供帧间进度 (0-1)，用于亚像素平滑
- * - needsRedraw 脏标记，避免未变帧时重复渲染
  */
 export class SpriteAnimator {
   private image: HTMLImageElement
@@ -17,7 +16,6 @@ export class SpriteAnimator {
   private loop: boolean
   private lastTick: number = 0
   private playing: boolean = true
-  private _needsRedraw: boolean = true
   private _frameProgress: number = 0
   public onFinish?: () => void
 
@@ -36,11 +34,6 @@ export class SpriteAnimator {
 
   get currentImage(): HTMLImageElement {
     return this.image
-  }
-
-  /** 脏标记：自上次渲染以来帧是否发生了变化 */
-  get needsRedraw(): boolean {
-    return this._needsRedraw
   }
 
   /** 当前帧进度 (0-1)，可用于帧间插值 */
@@ -64,7 +57,6 @@ export class SpriteAnimator {
 
     if (this.lastTick === 0) {
       this.lastTick = timestamp
-      this._needsRedraw = true
     }
 
     const interval = 1000 / this.fps
@@ -78,7 +70,6 @@ export class SpriteAnimator {
     if (clampedDelta >= interval) {
       this.lastTick = timestamp - (clampedDelta % interval)
       this.currentFrame++
-      this._needsRedraw = true
       this._frameProgress = 0
 
       if (this.currentFrame >= this.frameCount) {
@@ -102,20 +93,12 @@ export class SpriteAnimator {
   }
 
   /**
-   * 标记已渲染，清除脏标记
-   */
-  markRendered(): void {
-    this._needsRedraw = false
-  }
-
-  /**
    * 重置动画到第一帧
    */
   reset(): void {
     this.currentFrame = 0
     this.lastTick = 0
     this.playing = true
-    this._needsRedraw = true
     this._frameProgress = 0
   }
 }

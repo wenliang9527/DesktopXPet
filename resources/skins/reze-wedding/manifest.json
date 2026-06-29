@@ -1,0 +1,43 @@
+{
+  "name": "蕾塞·婚纱 Reze (Wedding Dress)",
+  "author": "DesktopXPet",
+  "version": "1.0.0",
+  "preview": "preview.png",
+  "description": "电锯人·蕾塞 — 婚纱版，白色婚纱+头纱+雏菊花饰，4 个动作",
+  "unlockLevel": 10,
+  "renderMode": "static",
+  "frameSize": {
+    "width": 384,
+    "height": 384
+  },
+  "displayScale": 0.85,
+  "animations": {
+    "idle": {
+      "effects": [
+        { "type": "float", "speed": 0.8, "intensity": 3 },
+        { "type": "breathe", "speed": 1.0, "intensity": 0.012 }
+      ]
+    },
+    "happy": {
+      "effects": [
+        { "type": "bounce", "speed": 1.8, "intensity": 6 },
+        { "type": "sway", "speed": 1.2, "intensity": 0.025 }
+      ],
+      "duration": 3
+    },
+    "love": {
+      "effects": [
+        { "type": "bounce", "speed": 1.3, "intensity": 4 },
+        { "type": "sway", "speed": 0.9, "intensity": 0.022 }
+      ],
+      "duration": 3.5
+    },
+    "celebrating": {
+      "effects": [
+        { "type": "bounce", "speed": 2.0, "intensity": 8 },
+        { "type": "sway", "speed": 1.5, "intensity": 0.04 }
+      ],
+      "duration": 4
+    }
+  }
+}

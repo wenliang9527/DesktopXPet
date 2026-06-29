@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import { getToolIcon } from '../../shared/tool-utils'
 
@@ -33,13 +33,45 @@ function StatusBubbleImpl() {
   const tools = useAppStore((s) => s.tools)
   const petState = useAppStore((s) => s.petState)
   const petName = useAppStore((s) => s.petName)
+  const nurtureState = useAppStore((s) => s.nurtureState)
+  const interactionMessage = useAppStore((s) => s.interactionMessage)
+  const clearInteractionMessage = useAppStore((s) => s.clearInteractionMessage)
+  const isWindowHovered = useAppStore((s) => s.isWindowHovered)
+  const showBubble = useAppStore((s) => s.showBubble)
 
-  const workingTools = tools.filter((t) => t.status === 'working')
-  const errorTools = tools.filter((t) => t.status === 'error')
+  // 互动消息 3 秒后自动清除
+  useEffect(() => {
+    if (!interactionMessage) return
+    const timer = setTimeout(() => clearInteractionMessage(), 3000)
+    return () => clearTimeout(timer)
+  }, [interactionMessage, clearInteractionMessage])
+
+  const nurtureWarnings = useMemo(() => {
+    const warnings: string[] = []
+    if (nurtureState) {
+      if (nurtureState.vitals.satiety < 20) warnings.push('饿了~')
+      if (nurtureState.vitals.mood < 20) warnings.push('不开心...')
+      if (nurtureState.vitals.energy < 20) warnings.push('好累...')
+    }
+    return warnings
+  }, [nurtureState])
+
+  const workingTools = useMemo(
+    () => tools.filter((t) => t.status === 'working'),
+    [tools]
+  )
+  const errorTools = useMemo(
+    () => tools.filter((t) => t.status === 'error'),
+    [tools]
+  )
   const hasMultiple = workingTools.length > 1
 
+  if (!showBubble) {
+    return null
+  }
+
   return (
-    <div className="status-bubble">
+    <div className="status-bubble" style={isWindowHovered ? { visibility: 'hidden' } : undefined}>
       {/* 状态徽章 */}
       <div
         className="bubble-badge"
@@ -82,6 +114,18 @@ function StatusBubbleImpl() {
         </div>
       ) : (
         <div className="bubble-summary">{petName} 待机中</div>
+      )}
+
+      {interactionMessage && (
+        <div className="bubble-interaction-message">{interactionMessage}</div>
+      )}
+
+      {nurtureWarnings.length > 0 && (
+        <div className="bubble-nurture-warnings">
+          {nurtureWarnings.map((w, i) => (
+            <span key={i} className="nurture-warning">{w}</span>
+          ))}
+        </div>
       )}
     </div>
   )

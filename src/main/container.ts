@@ -7,6 +7,7 @@ import type { PluginRegistry } from './monitor/registry'
 import type { MonitorService } from './monitor/index'
 import type { PetAPIServer } from './server/api'
 import type { SkinLoader } from './skin-loader'
+import type { NurtureService } from './nurture'
 
 export interface AppServices {
   petWindow: PetWindowManager
@@ -14,6 +15,7 @@ export interface AppServices {
   monitorService: MonitorService
   apiServer: PetAPIServer
   skinLoader: SkinLoader
+  nurtureService: NurtureService
 }
 
 class Container {
@@ -25,6 +27,18 @@ class Container {
 
   get<K extends keyof AppServices>(key: K): AppServices[K] | undefined {
     return this.services[key]
+  }
+
+  /**
+   * 断言式获取:服务不存在时抛异常,适用于初始化阶段必需的服务
+   * 避免调用方到处使用 ?. 可选链
+   */
+  require<K extends keyof AppServices>(key: K): AppServices[K] {
+    const service = this.services[key]
+    if (!service) {
+      throw new Error(`Required service "${String(key)}" is not registered`)
+    }
+    return service
   }
 }
 

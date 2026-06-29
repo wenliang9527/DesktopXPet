@@ -5,6 +5,7 @@ import SkinPreviewCanvas from './SkinPreviewCanvas'
 
 interface SkinItem {
   name: string
+  dirName: string
   path: string
   previewUrl?: string
   manifest?: SkinManifest
@@ -27,9 +28,26 @@ export default function SkinSelector() {
         if (cancelled) return
         const withPreview = await Promise.all(
           list.map(async (skin: SkinItem) => {
-            const previewPath = `${skin.path.replace(/\\/g, '/')}/preview.png`
-            const dataUrl = await window.desktopXPet.readSkinImage(previewPath)
-            return { ...skin, previewUrl: dataUrl || undefined }
+            const basePath = skin.path.replace(/\\/g, '/')
+            // 并行读取预览图和 manifest.json
+            const [previewUrl, manifestData] = await Promise.all([
+              window.desktopXPet.readSkinImage(`${basePath}/preview.png`),
+              window.desktopXPet.readSkinImage(`${basePath}/manifest.json`),
+            ])
+            let manifest: SkinManifest | undefined
+            if (manifestData) {
+              try {
+                const base64 = manifestData.split(',')[1]
+                const binary = atob(base64)
+                const bytes = new Uint8Array(binary.length)
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+                const text = new TextDecoder('utf-8').decode(bytes)
+                manifest = JSON.parse(text)
+              } catch {
+                // manifest 解析失败时忽略，仅失去动画预览
+              }
+            }
+            return { ...skin, previewUrl: previewUrl || undefined, manifest }
           })
         )
         if (cancelled) return
@@ -45,9 +63,15 @@ export default function SkinSelector() {
       loadSkins()
     })
 
+    // 监听等级提升导致的皮肤列表变更(新解锁的皮肤自动出现)
+    const cleanupListChanged = window.desktopXPet.onSkinListChanged(() => {
+      loadSkins()
+    })
+
     return () => {
       cancelled = true
       cleanup()
+      cleanupListChanged()
     }
   }, [])
 
@@ -72,8 +96,8 @@ export default function SkinSelector() {
         {skins.map((skin) => (
           <div
             key={skin.name}
-            className={`skin-card ${currentSkin === skin.name ? 'active' : ''}`}
-            onClick={() => handleSwitch(skin.name)}
+            className={`skin-card ${currentSkin === skin.dirName || currentSkin === skin.name ? 'active' : ''}`}
+            onClick={() => handleSwitch(skin.dirName)}
             onMouseEnter={() => setHoveredSkin(skin.name)}
             onMouseLeave={() => setHoveredSkin(null)}
           >
@@ -88,7 +112,7 @@ export default function SkinSelector() {
               )}
             </div>
             <div className="skin-name">{skin.name}</div>
-            {currentSkin === skin.name && <div className="skin-badge">当前</div>}
+            {(currentSkin === skin.dirName || currentSkin === skin.name) && <div className="skin-badge">当前</div>}
             {/* 音效试听按钮 */}
             <div className="skin-actions">
               <button

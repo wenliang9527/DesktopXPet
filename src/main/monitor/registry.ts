@@ -2,6 +2,7 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('PluginRegistry')
 import type { MonitorPlugin } from '@shared/types'
 import type { PluginConfig, PluginInfo } from '@shared/plugin-api'
+import { getStore } from '../store'
 
 /**
  * PluginRegistry — 插件注册中心
@@ -10,6 +11,11 @@ import type { PluginConfig, PluginInfo } from '@shared/plugin-api'
 export class PluginRegistry {
   private plugins: Map<string, MonitorPlugin> = new Map()
   private configs: Map<string, PluginConfig> = new Map()
+  /**
+   * 插件启停回调,由 MonitorService 注册。
+   * togglePlugin 在更新配置后会调用此回调,使外部能实际启停定时器与插件生命周期。
+   */
+  onToggle?: (name: string, enabled: boolean) => void
 
   /**
    * 注册插件
@@ -69,13 +75,29 @@ export class PluginRegistry {
 
   /**
    * 启用/禁用插件
+   * 同时持久化到 store 并通过 onToggle 回调通知 MonitorService 启停定时器与生命周期
    */
   togglePlugin(name: string, enabled: boolean): void {
     const config = this.configs.get(name)
     if (config) {
       config.enabled = enabled
+      // 持久化到 store,使设置在重启后仍然生效
+      try {
+        getStore().set(`monitor.plugins.${name}.enabled`, enabled)
+      } catch (err) {
+        log.warn(`Failed to persist plugin "${name}" enabled state:`, err)
+      }
       log.info(`Plugin "${name}" ${enabled ? 'enabled' : 'disabled'}`)
+      // 通知外部(MonitorService)实际启停插件
+      this.onToggle?.(name, enabled)
     }
+  }
+
+  /**
+   * 获取插件配置(供 MonitorService 在 toggle 启用时传入 plugin.init)
+   */
+  getPluginConfig(name: string): Record<string, any> {
+    return this.configs.get(name)?.config || {}
   }
 
   /**
@@ -96,18 +118,21 @@ export class PluginRegistry {
   }
 
   /**
-   * 初始化所有已启用插件
+   * 初始化所有已启用插件（并行）
    */
   async initAll(): Promise<void> {
-    for (const plugin of this.getEnabledPlugins()) {
-      try {
-        const config = this.configs.get(plugin.name)?.config || {}
-        await plugin.init?.(config)
-        log.info(`Plugin initialized: ${plugin.name}`)
-      } catch (err) {
-        log.error(`Plugin "${plugin.name}" init failed:`, err)
-      }
-    }
+    const plugins = this.getEnabledPlugins()
+    await Promise.allSettled(
+      plugins.map(async (plugin) => {
+        try {
+          const config = this.configs.get(plugin.name)?.config || {}
+          await plugin.init?.(config)
+          log.info(`Plugin initialized: ${plugin.name}`)
+        } catch (err) {
+          log.error(`Plugin "${plugin.name}" init failed:`, err)
+        }
+      })
+    )
   }
 
   /**

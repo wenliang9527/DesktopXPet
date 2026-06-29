@@ -36,7 +36,7 @@ export function useClickThrough(canvasRef: React.RefObject<HTMLCanvasElement | n
     const refreshCache = () => {
       const canvas = canvasRef.current
       if (!canvas) return
-      cachedCtx = canvas.getContext('2d')
+      cachedCtx = canvas.getContext('2d', { willReadFrequently: true })
       cachedRect = canvas.getBoundingClientRect()
     }
 
@@ -51,7 +51,6 @@ export function useClickThrough(canvasRef: React.RefObject<HTMLCanvasElement | n
       if (x < 0 || y < 0 || x >= cachedRect.width || y >= cachedRect.height) {
         if (lastHoverState.current) {
           lastHoverState.current = false
-          window.desktopXPet.setHoverState(false)
           useAppStore.getState().setHovering(false)
         }
         return
@@ -70,7 +69,6 @@ export function useClickThrough(canvasRef: React.RefObject<HTMLCanvasElement | n
 
       if (isOnPet !== lastHoverState.current) {
         lastHoverState.current = isOnPet
-        window.desktopXPet.setHoverState(isOnPet)
         useAppStore.getState().setHovering(isOnPet)
       }
     }, 150)

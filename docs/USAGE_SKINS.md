@@ -8,6 +8,7 @@
 | 蝴蝶剑士 | `resources/skins/butterfly-swordsman/` | 64×64 | 像素风 | 武侠风格标准版，程序化生成 |
 | 蝴蝶剑士 HD | `resources/skins/butterfly-swordsman-hd/` | 384×384 | 高清风 | 武侠风格 HD 版，AI 辅助生成 |
 | 蕾塞 | `resources/skins/reze/` | 384×384 | 高清风 | 电锯人角色，AI 生成 |
+| 蕾塞·婚纱 | `resources/skins/reze-wedding/` | 384×384 | 高清风 | 婚纱版，Lv10 解锁（`unlockLevel: 10`） |
 | 专业团队 | `resources/skins/professional-team/` | 384×384 | 高清风 | 商务人士梗图，AI 生成 |
 
 ## 渲染模式
@@ -29,6 +30,126 @@
 2. **右键宠物** → `🎨 切换皮肤` → 选择皮肤
 3. **仪表盘** → 底部皮肤选择器 → 点击切换
 
+## 等级解锁皮肤
+
+通过 `manifest.json` 的 `unlockLevel` 字段可控制皮肤的解锁等级，配合养成系统实现"等级提升 → 解锁新皮肤"的体验。
+
+**字段说明：**
+
+- 默认 `unlockLevel = 1`，即所有等级可见（向后兼容，旧 manifest 无此字段时行为不变）。
+- 等级不足的皮肤**不会出现在皮肤选择器中**（不是灰色禁用，而是完全隐藏）。
+- 等级提升时自动刷新皮肤列表，新解锁皮肤立即出现。
+- 托盘快速切换（`Ctrl+Shift+S`）也只在已解锁皮肤间循环，不会跳到未解锁皮肤。
+- 启动恢复时校验 `unlockLevel`，若当前皮肤未解锁则回退到第一个已解锁皮肤。
+- 状态注入同理：未解锁皮肤的 `states` 不会被注入到养成系统，改用第一个已解锁皮肤的 `states`（或由 NurtureService 兜底）。
+
+**示例：** 婚纱皮肤 `unlockLevel: 10`，Lv10 前在皮肤选择器、托盘快捷切换、`SKIN_LIST` IPC 返回结果中均完全不可见。
+
+```json
+{
+  "name": "蕾塞·婚纱 Reze (Wedding Dress)",
+  "unlockLevel": 10
+}
+```
+
+## 互动动作(actions)
+
+`manifest.json` 的 `actions` 字段允许皮肤声明自定义互动动作，覆盖默认行为。每个动作结构如下：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | 动作名（如 `jump`/`eat`/`stroke`/`custom`） |
+| `trigger` | string | 触发方式：`click` / `feed` / `stroke`（摸头） |
+| `image` | string | 对应 PNG 文件名（不含扩展名），如 `jump` |
+| `priority` | number | 优先级，1-10，数字越大越优先（默认 1） |
+
+**触发逻辑：**
+
+- 互动时从 `manifest.actions` 中查找 `trigger` 匹配且 `priority` 最高的动作。
+- 同一互动期间，低优先级动作不能打断高优先级动作（优先级锁）。
+- 无 `actions` 字段时走默认行为，向后兼容：
+
+| 触发方式 | 默认动作图 | 默认视觉特效 |
+|---------|-----------|-------------|
+| `click` | `jump` | jump（跳跃） |
+| `feed` | `eat` | eat（进食） |
+| `stroke` | `stroke` | wiggle（摆动） |
+
+**示例 JSON：**
+
+```json
+{
+  "actions": [
+    { "name": "jump", "trigger": "click", "image": "jump", "priority": 10 },
+    { "name": "eat", "trigger": "feed", "image": "eat", "priority": 10 },
+    { "name": "happy", "trigger": "stroke", "image": "happy", "priority": 10 }
+  ]
+}
+```
+
+## 养成状态联动(states)
+
+`manifest.json` 的 `states` 字段声明皮肤支持的养成状态。养成系统根据宠物属性（`mood`/`satiety`/`energy`/`intimacy`）自动决策显示哪个状态。
+
+**状态结构：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | 状态名（如 `hungry`/`sad`/`excited`） |
+| `image` | string | 对应 PNG 文件名（不含扩展名） |
+| `category` | string | 状态分类：`behavior` / `physiological` / `emotion` |
+| `triggers` | array | 触发条件数组（AND 关系，全部满足才触发） |
+| `priority` | number | 状态优先级，数值越大越优先（默认 50） |
+| `unlockLevel` | number | 该状态的解锁等级（默认 1） |
+| `cooldownMs` | number | 该状态专属切换冷却毫秒数（可选，覆盖全局冷却） |
+
+**triggers 条件结构：**
+
+| 字段 | 取值 |
+|------|------|
+| `field` | `mood` / `satiety` / `energy` / `intimacy` / `level` / `event` |
+| `op` | `lt` / `gt` / `lte` / `gte` / `eq` / `ne` |
+| `value` | 数值阈值（vital 字段 0-100；`level` 为正整数）或事件名字符串（`event` 字段） |
+
+> `triggers` 数组内多个条件是 **AND 关系**，全部满足才触发。
+
+**状态决策优先级：**
+
+1. **监控状态**（`working`/`error`/`happy`）— 最高优先级
+2. **养成状态**（由 `manifest.states` 声明，按 `priority` 排序）
+3. **基础兜底**（`idle`/`sleeping`/`waking`）— 最低优先级
+
+**容错：** 状态图不存在时静默回退到 `idle`，不报错。
+
+**示例 JSON：**
+
+```json
+{
+  "states": [
+    {
+      "name": "hungry",
+      "image": "hungry",
+      "category": "physiological",
+      "triggers": [{ "field": "satiety", "op": "lt", "value": 20 }],
+      "priority": 60,
+      "unlockLevel": 3,
+      "cooldownMs": 5000
+    },
+    {
+      "name": "sad",
+      "image": "sad",
+      "category": "emotion",
+      "triggers": [
+        { "field": "mood", "op": "lt", "value": 30 },
+        { "field": "intimacy", "op": "lt", "value": 20 }
+      ],
+      "priority": 50,
+      "unlockLevel": 6
+    }
+  ]
+}
+```
+
 ## 皮肤预览
 
 在仪表盘的皮肤选择器中:
@@ -49,12 +170,17 @@ my-skin/
 ├── happy.png        # 开心动画
 ├── sleeping.png     # 睡眠动画
 ├── error.png        # 出错动画
+├── waking.png       # 可选 — 睡醒过渡动画（缺失时回退 idle）
 ├── preview.png      # 预览图（推荐 128×128）
+├── <action>.png     # 可选 — 互动动作图（如 jump/eat/stroke，对应 manifest.actions[].image）
+├── <state>.png      # 可选 — 养成状态图（如 hungry/sad/tired，对应 manifest.states[].image）
 └── sounds/          # 可选 — 皮肤专属音效
     ├── click.wav    # 覆盖内置点击音
     ├── complete.wav # 覆盖内置完成音
     └── error.wav    # 覆盖内置错误音
 ```
+
+> **养成状态图文件名**由 `manifest.states[].image` 决定，常见的有 `hungry.png`、`sad.png`、`tired.png`、`lonely.png`、`excited.png`、`angry.png`、`love.png`、`sick.png`、`celebrating.png`、`dance.png`、`run.png` 等，具体取决于皮肤声明的状态列表。状态图不存在时静默回退到 `idle`。
 
 > 皮肤音效优先级：用户音效 > 皮肤音效 > 内置音效。只需放入想覆盖的同名文件即可。详见 [SOUND_GUIDE.md](./SOUND_GUIDE.md)。
 
@@ -97,10 +223,17 @@ my-skin/
       "frames": 4,
       "fps": 4,
       "loop": true
+    },
+    "waking": {
+      "frames": 2,
+      "fps": 4,
+      "loop": false
     }
   }
 }
 ```
+
+> `waking` 为可选状态，缺失时静默回退到 `idle`。`unlockLevel`/`actions`/`states` 字段均为可选，详见下方字段说明及对应章节。
 
 ### 字段说明
 
@@ -116,6 +249,9 @@ my-skin/
 | `displayScale` | number | 显示缩放因子（可选，默认 1.0） |
 | `renderMode` | string | 动画模式（可选，默认 `"spritesheet"`）。`"spritesheet"` = 多帧精灵图动画，`"static"` = 静态立绘+Canvas 变换 |
 | `animations` | object | 各状态的动画配置 |
+| `unlockLevel` | number | 皮肤解锁等级（可选，默认 1）。等级不足时皮肤**完全不出现在选择器中**（不是灰色禁用）。例如婚纱皮肤设为 10，需养成系统达到 Lv10 才解锁。详见 [等级解锁皮肤](#等级解锁皮肤) |
+| `actions` | array | 声明式互动动作（可选）。每个动作含 `name`/`trigger`/`image`/`priority` 字段。无此字段时走默认行为，向后兼容。详见 [互动动作(actions)](#互动动作actions) |
+| `states` | array | 养成状态配置（可选）。声明皮肤支持哪些养成状态及其触发条件。详见 [养成状态联动(states)](#养成状态联动states) |
 
 ### 两种动画模式
 
@@ -159,6 +295,21 @@ my-skin/
 | `frames` | number | 帧数（精灵图中的帧数） |
 | `fps` | number | 帧率（每秒帧数） |
 | `loop` | boolean | 是否循环播放 |
+
+### 基础状态列表
+
+`animations` 配置中支持的状态名（键名）如下：
+
+| 状态 | 说明 | 是否必需 |
+|------|------|---------|
+| `idle` | 待机 | ✅ 必需 |
+| `working` | 工作中（监控触发） | 推荐 |
+| `happy` | 开心（任务完成） | 推荐 |
+| `sleeping` | 睡眠（长时间无操作） | 推荐 |
+| `error` | 出错 | 推荐 |
+| `waking` | 睡醒过渡动画 | 可选 |
+
+> **waking 状态**：用于从 `sleeping` 切回 `idle` 的过渡动画。皮肤可提供独立的 `waking.png`（精灵图模式）或在 `animations.waking` 中配置效果（静态立绘模式）。**缺失时静默回退到 `idle`，不报错**，皮肤不必强制提供。
 
 ### 支持的帧尺寸
 

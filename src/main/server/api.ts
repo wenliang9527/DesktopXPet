@@ -5,6 +5,31 @@ const log = createLogger('PetAPIServer')
 import { API_PORT } from '@shared/constants'
 import type { PushStatus } from '@shared/types'
 
+/** details 字段允许的原始值类型 */
+type PrimitiveValue = string | number | boolean | null
+
+/**
+ * 清洗 details 字段:只允许扁平的 plain object,且值只能是原始类型。
+ * 防止下游代码收到数组、嵌套对象、函数等异常数据。
+ * 限制键数量 ≤ 50,防止超大对象。
+ */
+function sanitizeDetails(details: unknown): Record<string, PrimitiveValue> | undefined {
+  if (details == null) return undefined
+  if (typeof details !== 'object' || Array.isArray(details)) return undefined
+  const obj = details as Record<string, unknown>
+  const result: Record<string, PrimitiveValue> = {}
+  let count = 0
+  for (const key of Object.keys(obj)) {
+    if (count >= 50) break
+    const v = obj[key]
+    if (v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      result[key] = v
+      count++
+    }
+  }
+  return result
+}
+
 /**
  * PetAPIServer — 内嵌 HTTP 服务器
  * 监听 localhost，接收外部工具推送的状态更新
@@ -23,7 +48,7 @@ export class PetAPIServer {
     return this.token
   }
 
-  start(onStatus: (data: PushStatus) => void): void {
+  start(onStatus: (data: PushStatus) => void): Promise<number> {
     this.onStatus = onStatus
 
     this.server = createServer((req, res) => {
@@ -53,23 +78,43 @@ export class PetAPIServer {
       }
     })
 
-    this.server.listen(this.port, '127.0.0.1', () => {
-      log.info(`DesktopXPet API listening on http://127.0.0.1:${this.port}`)
-    })
-
-    this.server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        // 端口冲突重试上限保护
-        if (this.port >= API_PORT + 10) {
-          log.error(`Port ${API_PORT}-${this.port} all in use, giving up`)
-          return
-        }
-        log.warn(`Port ${this.port} is in use, trying ${this.port + 1}`)
-        this.port++
-        this.server!.listen(this.port, '127.0.0.1')
-      } else {
-        log.error('API server error:', err)
+    // 返回 Promise,在 listening 事件触发后 resolve(返回实际端口)
+    // 修复:start() 原为同步方法,端口冲突时 error 事件异步触发,
+    // 调用方在 start() 返回后立即 getPort() 会拿到旧的默认端口,
+    // 导致 CLI config 和日志写入错误端口,IDE 扩展连接失败。
+    return new Promise<number>((resolve, reject) => {
+      let resolved = false
+      const onListening = () => {
+        if (resolved) return
+        resolved = true
+        log.info(`DesktopXPet API listening on http://127.0.0.1:${this.port}`)
+        resolve(this.port)
       }
+      const onError = (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          if (this.port >= API_PORT + 10) {
+            if (!resolved) {
+              resolved = true
+              log.error(`Port ${API_PORT}-${this.port} all in use, giving up`)
+              reject(new Error(`All ports ${API_PORT}-${this.port} in use`))
+            }
+            return
+          }
+          log.warn(`Port ${this.port} is in use, trying ${this.port + 1}`)
+          this.port++
+          this.server!.listen(this.port, '127.0.0.1')
+        } else {
+          if (!resolved) {
+            resolved = true
+            log.error('API server error:', err)
+            reject(err)
+          }
+        }
+      }
+
+      this.server!.once('listening', onListening)
+      this.server!.on('error', onError)
+      this.server!.listen(this.port, '127.0.0.1')
     })
   }
 
@@ -111,7 +156,7 @@ export class PetAPIServer {
           tool: String(data.tool).slice(0, 100),
           status: data.status,
           summary: data.summary ? String(data.summary).slice(0, 500) : '',
-          details: data.details,
+          details: sanitizeDetails(data.details),
         }
         this.onStatus?.(validated)
         res.writeHead(200)
@@ -126,14 +171,22 @@ export class PetAPIServer {
 
   async stop(): Promise<void> {
     return new Promise((resolve) => {
-      if (this.server) {
-        this.server.close(() => {
-          log.info('API server stopped')
-          resolve()
-        })
-      } else {
+      if (!this.server) {
+        resolve()
+        return
+      }
+      const server = this.server
+      this.server = null
+      let done = false
+      const finish = () => {
+        if (done) return
+        done = true
+        log.info('API server stopped')
         resolve()
       }
+      // server.close 在有活跃连接时回调不触发，加 2s 超时兜底
+      server.close(() => finish())
+      setTimeout(finish, 2000)
     })
   }
 

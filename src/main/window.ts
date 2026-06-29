@@ -3,7 +3,7 @@ import { join } from 'path'
 import { PET_WINDOW_WIDTH, PET_WINDOW_HEIGHT } from '@shared/constants'
 import { createLogger } from './utils/logger'
 const log = createLogger('PetWindowManager')
-import { getStore } from './store'
+import { storeGet, storeSet } from './store'
 
 export class PetWindowManager {
   private win: BrowserWindow | null = null
@@ -27,7 +27,7 @@ export class PetWindowManager {
       y: defaultY,
       frame: false,
       transparent: true,
-      alwaysOnTop: true,
+      alwaysOnTop: storeGet('pet.alwaysOnTop') ?? true,
       skipTaskbar: true,
       resizable: false,
       hasShadow: false,
@@ -135,7 +135,7 @@ export class PetWindowManager {
     if (!this.win) return
     const bounds = this.win.getBounds()
     try {
-      getStore().set('pet.position', { x: bounds.x, y: bounds.y })
+      storeSet('pet.position', { x: bounds.x, y: bounds.y })
     } catch (err) {
       // 限制错误日志频率：每 30 秒最多打印一次
       const now = Date.now()
@@ -149,7 +149,7 @@ export class PetWindowManager {
   restorePosition(): void {
     if (!this.win) return
     try {
-      const pos = getStore().get('pet.position')
+      const pos = storeGet('pet.position')
       if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
         const display = screen.getDisplayNearestPoint({ x: pos.x, y: pos.y })
         const workArea = display.workArea
@@ -196,7 +196,7 @@ export class PetWindowManager {
     this.savePosition()
   }
 
-  toggleAlwaysOnTop(enabled: boolean): void {
+  setAlwaysOnTop(enabled: boolean): void {
     if (this.win) {
       this.win.setAlwaysOnTop(enabled)
     }

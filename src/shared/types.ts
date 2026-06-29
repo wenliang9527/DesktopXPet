@@ -1,3 +1,33 @@
+// 互动类型
+export type InteractType = 'pet' | 'feed' | 'stroke'
+
+// 宠物养成属性
+export interface PetVitals {
+  mood: number // 心情 0-100
+  satiety: number // 饱食度 0-100
+  energy: number // 精力 0-100
+  intimacy: number // 亲密度 0-100
+}
+
+// 宠物成长数据
+export interface PetGrowth {
+  level: number
+  xp: number
+  xpToNextLevel: number
+  totalXp: number
+  completedTasks: number
+  totalWorkMinutes: number
+  pomodorosCompleted: number
+}
+
+// 养成系统完整状态
+export interface PetNurtureState {
+  schemaVersion: number // 存档 schema 版本号，用于未来字段变更时迁移旧存档
+  vitals: PetVitals
+  growth: PetGrowth
+  lastUpdate: number
+}
+
 // 宠物状态类型
 export type PetState = 'idle' | 'working' | 'happy' | 'sleeping' | 'error' | 'waking'
 
@@ -67,6 +97,41 @@ export function isStaticAnimationConfig(config: AnimationConfig): config is Stat
   return 'effects' in config
 }
 
+// 声明式互动动作:皮肤可声明每个触发方式对应的动作图与优先级
+export interface SkinAction {
+  // 动作名,如 'jump'/'eat'/'stroke'/'custom'
+  name: string
+  // 触发方式
+  trigger: 'click' | 'feed' | 'stroke'
+  // 对应 PNG 文件名(不含扩展名),如 'jump'
+  image: string
+  // 优先级,数字越大越优先
+  priority: number
+}
+
+// 状态触发条件(AND 组合)
+// field 扩展支持 'level'(等级触发)和 'event'(事件触发)
+// - vital 字段(mood/satiety/energy/intimacy):用 op+value 比较数值
+// - 'level':用 op+value 比较当前等级(如 {field:'level',op:'gte',value:5} 表示 Lv5+)
+// - 'event':用 value 匹配事件名(如 {field:'event',op:'eq',value:'task_completed'})
+//   op 只用 'eq'/'ne',value 是事件名字符串
+export interface StateTrigger {
+  field: 'mood' | 'satiety' | 'energy' | 'intimacy' | 'level' | 'event'
+  op: 'lt' | 'gt' | 'lte' | 'gte' | 'eq' | 'ne'
+  value: number | string
+}
+
+// 皮肤状态配置(manifest 中声明)
+export interface SkinStateConfig {
+  name: string
+  image: string
+  category: 'emotion' | 'physiological' | 'behavior'
+  triggers: StateTrigger[]
+  priority: number
+  unlockLevel: number
+  cooldownMs?: number
+}
+
 // 皮肤 manifest
 export interface SkinManifest {
   name: string
@@ -80,13 +145,45 @@ export interface SkinManifest {
   displayScale?: number
   /** 渲染模式: 'spritesheet'(逐帧精灵图,默认) 或 'static'(静态立绘+Canvas动画) */
   renderMode?: 'spritesheet' | 'static'
+  /** 声明式互动动作:可选,旧 manifest 无此字段时走默认动作(jump/eat/stroke) */
+  actions?: SkinAction[]
+  /** 皮肤状态配置:可选,旧 manifest 无此字段时行为不变 */
+  states?: SkinStateConfig[]
+  /** 皮肤解锁等级(皮肤级别):未达到等级的皮肤在 SkinSelector 中完全隐藏。默认 1 */
+  unlockLevel?: number
 }
 
-// 皮肤数据（加载后）
-export interface SkinData {
-  manifest: SkinManifest
-  images: Record<string, HTMLImageElement>
-  preview: string
+// 解锁配置(可配置解锁节奏)
+export interface UnlockConfig {
+  /** 是否启用等级解锁,false 则全部解锁 */
+  enabled: boolean
+  /** 自定义状态解锁等级 { hungry: 2, sad: 5 } */
+  customThresholds?: Record<string, number>
+}
+
+// 状态切换冷却配置
+export interface StateTransitionConfig {
+  /** 全局默认冷却 ms(默认 3000) */
+  globalCooldownMs: number
+}
+
+// 宠物显示状态决策结果
+export interface PetDisplayState {
+  /** 最终显示状态名(如 'hungry'/'idle'/'working') */
+  state: string
+  /** 状态来源:监控/养成/基础兜底 */
+  source: 'monitor' | 'nurture' | 'base'
+  /** 触发原因(调试用,如 'satiety<20') */
+  reason?: string
+}
+
+// 养成广播数据(扩展 nurtureState)
+export interface NurtureBroadcast {
+  nurtureState: PetNurtureState
+  /** 当前等级解锁的状态名列表 */
+  unlockedStates: string[]
+  /** 主进程侧计算的显示状态(可选,渲染进程可重算) */
+  displayState?: PetDisplayState
 }
 
 // 应用设置
@@ -121,6 +218,10 @@ export interface AppSettings {
     autoStart: boolean
     language: 'zh-CN' | 'en'
     theme: 'auto' | 'light' | 'dark'
+  }
+  nurture: {
+    unlockConfig: UnlockConfig
+    stateTransition: StateTransitionConfig
   }
 }
 

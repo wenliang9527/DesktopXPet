@@ -29,6 +29,12 @@
       ],
       "duration": 3
     },
+    "jump": {
+      "effects": [
+        { "type": "float", "speed": 0.1, "intensity": 0.001 }
+      ],
+      "duration": 0.45
+    },
     "sleeping": {
       "effects": [
         { "type": "breathe", "speed": 0.5, "intensity": 0.02 },

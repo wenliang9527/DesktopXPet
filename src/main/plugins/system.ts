@@ -46,6 +46,7 @@ export class SystemMonitorPlugin implements MonitorPlugin {
 
   /**
    * 计算 CPU 使用率（两次采样差值）
+   * 首次采样只记录基线并返回 0 占位值,下次 poll 才能计算出差值,避免阻塞 1 秒
    */
   private async getCpuUsage(): Promise<number> {
     const cpus = os.cpus()
@@ -64,10 +65,9 @@ export class SystemMonitorPlugin implements MonitorPlugin {
       return totalDiff > 0 ? Math.round((1 - idleDiff / totalDiff) * 100) : 0
     }
 
+    // 首次采样:只记录基线,返回 0(下次 poll 才有差值)
     this.lastCpuInfo = { idle, total }
-    // 首次采样，等待 1 秒后再采样
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    return this.getCpuUsage()
+    return 0
   }
 
   async dispose(): Promise<void> {

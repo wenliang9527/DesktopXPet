@@ -3,39 +3,69 @@ const log = createLogger('MonitorService')
 import type { MonitorPlugin, MonitorStatus, AggregatedStatus, PushStatus } from '@shared/types'
 import { PUSH_TTL_MS, DEFAULT_POLL_INTERVAL } from '@shared/constants'
 import { PluginRegistry } from './registry'
+import { PluginScheduler } from './scheduler'
+import { StatusAggregator } from './aggregator'
+import { EventDeduplicator } from './deduplicator'
+import { StatusBroadcaster } from './broadcaster'
+import { PushDataManager } from './push-data-manager'
 
 /**
- * MonitorService — 监控调度器
- * 调度所有已启用插件的定时轮询、聚合状态、推送给渲染进程
+ * MonitorService — 监控调度器（协调器）
+ * 组合 PluginScheduler / StatusAggregator / EventDeduplicator / StatusBroadcaster / PushDataManager，
+ * 编排插件定时轮询、状态聚合、事件去重与状态广播。
  */
 export class MonitorService {
   private registry: PluginRegistry
-  private timers: Map<string, ReturnType<typeof setInterval>> = new Map()
-  private latestStatus: AggregatedStatus | null = null
-  private pushCache: Map<string, { data: PushStatus; expiresAt: number }> = new Map()
+  private scheduler: PluginScheduler
+  private aggregator: StatusAggregator
+  private deduplicator: EventDeduplicator
+  private broadcaster: StatusBroadcaster
+  private pushDataManager: PushDataManager
+  // 各插件最近一次轮询获取的状态
   private lastFetchResults: Map<string, MonitorStatus> = new Map()
-  private onUpdate?: (status: AggregatedStatus) => void
-  // 已通知过的 completed 事件 key 集合（`${tool}|${timestamp}`），用于通知去重
-  private notifiedCompletedKeys: Set<string> = new Set()
-  // 用户配置的默认轮询间隔,覆盖各插件硬编码的 pollInterval
-  private defaultPollInterval: number
-  // 定期强制同步定时器（兜底：保证渲染进程状态最终一致）
-  private syncTimer: ReturnType<typeof setInterval> | null = null
-  // 上次广播时间戳，用于强制同步间隔控制
-  private lastBroadcastTime = 0
 
-  constructor(registry: PluginRegistry, onUpdate?: (status: AggregatedStatus) => void, defaultPollInterval: number = DEFAULT_POLL_INTERVAL) {
+  constructor(
+    registry: PluginRegistry,
+    onUpdate?: (status: AggregatedStatus) => void,
+    defaultPollInterval: number = DEFAULT_POLL_INTERVAL
+  ) {
     this.registry = registry
-    this.onUpdate = onUpdate
-    this.defaultPollInterval = defaultPollInterval
+    this.scheduler = new PluginScheduler(defaultPollInterval)
+    this.aggregator = new StatusAggregator()
+    this.deduplicator = new EventDeduplicator()
+    this.broadcaster = new StatusBroadcaster(onUpdate)
+    this.pushDataManager = new PushDataManager(PUSH_TTL_MS)
+    // 注册插件启停回调,使 togglePlugin 能实际启停插件定时器与生命周期
+    this.registry.onToggle = (name, enabled) => this.handleToggle(name, enabled)
+  }
+
+  /**
+   * 启动所有插件的定时轮询
+   * 每个插件以 0-2000ms 随机延迟错峰启动,避免同时发起请求造成瞬时资源竞争
+   */
+  startAll(): void {
+    const plugins = this.registry.getEnabledPlugins()
+    this.scheduler.startAllStaggered(plugins, (p) => this.startPlugin(p))
+    // 启动定期强制同步（每 30 秒广播一次当前状态，保证渲染进程最终一致）
+    this.broadcaster.startSyncTimer()
+    log.info(`MonitorService started with ${plugins.length} plugins`)
+  }
+
+  /**
+   * 停止所有定时器
+   */
+  stopAll(): void {
+    this.scheduler.stopAll()
+    this.broadcaster.stopSyncTimer()
+    log.info('MonitorService stopped all plugins')
   }
 
   /**
    * 更新默认轮询间隔并重启所有插件定时器(设置变更时调用)
    */
   setDefaultPollInterval(interval: number): void {
-    if (interval <= 0 || interval === this.defaultPollInterval) return
-    this.defaultPollInterval = interval
+    if (interval <= 0 || interval === this.scheduler.getDefaultPollInterval()) return
+    this.scheduler.setDefaultPollInterval(interval)
     log.info(`Default poll interval updated to ${interval}ms, restarting all plugin timers`)
     // 重启所有已启用插件的定时器,使新间隔立即生效
     for (const plugin of this.registry.getEnabledPlugins()) {
@@ -44,119 +74,40 @@ export class MonitorService {
   }
 
   /**
-   * 启动所有插件的定时轮询
+   * 处理 Push 推送数据
    */
-  startAll(): void {
-    const plugins = this.registry.getEnabledPlugins()
-    for (const plugin of plugins) {
-      this.startPlugin(plugin)
-    }
-    // 启动定期强制同步（每 30 秒广播一次当前状态，保证渲染进程最终一致）
-    this.syncTimer = setInterval(() => {
-      this.forceSync()
-    }, 30_000)
-    log.info(`MonitorService started with ${plugins.length} plugins`)
+  handlePush(push: PushStatus): void {
+    this.pushDataManager.set(push)
+    log.info(`Push received: ${push.tool} = ${push.status} - ${push.summary}`)
+    this.emitUpdate()
   }
 
   /**
    * 聚合所有插件的状态数据（使用缓存，不重复 fetch）
    */
   aggregateAll(): AggregatedStatus {
-    const pollStatuses: MonitorStatus[] = Array.from(this.lastFetchResults.values())
-
     const now = Date.now()
-    const allStatuses: MonitorStatus[] = [...pollStatuses]
-    for (const [tool, cached] of this.pushCache) {
-      if (cached.expiresAt > now) {
-        const pushStatus: MonitorStatus = {
-          tool: cached.data.tool,
-          status: cached.data.status,
-          summary: cached.data.summary,
-          details: cached.data.details,
-          timestamp: now,
-        }
-        const existing = allStatuses.findIndex((s) => s.tool === tool)
-        if (existing >= 0) {
-          allStatuses[existing] = pushStatus
-        } else {
-          allStatuses.push(pushStatus)
-        }
-      }
-    }
-
-    return this.aggregateStatus(allStatuses)
+    const pollStatuses = Array.from(this.lastFetchResults.values())
+    const pushStatuses = this.pushDataManager.getValidStatuses(now)
+    const allStatuses = this.mergeStatuses(pollStatuses, pushStatuses)
+    return this.aggregator.aggregate(allStatuses)
   }
 
   /**
-   * 停止所有定时器
+   * 获取当前快照（不触发新的 fetch）
    */
-  stopAll(): void {
-    for (const timer of this.timers.values()) {
-      clearInterval(timer)
-    }
-    this.timers.clear()
-    if (this.syncTimer) {
-      clearInterval(this.syncTimer)
-      this.syncTimer = null
-    }
-    log.info('MonitorService stopped all plugins')
+  getSnapshot(): AggregatedStatus {
+    return this.broadcaster.getSnapshot()
   }
+
+  // ─── 内部编排方法 ──────────────────────────────────────────
 
   /**
    * 启动单个插件的轮询
    */
   private startPlugin(plugin: MonitorPlugin): void {
-    this.stopPlugin(plugin.name)
-    this.fetchPluginStatus(plugin)
-    this.setPluginTimer(plugin)
-  }
-
-  /**
-   * 设置插件定时器（支持动态间隔）
-   */
-  private setPluginTimer(plugin: MonitorPlugin): void {
-    const currentInterval = this.getPluginInterval(plugin)
-    const timer = setInterval(() => {
-      this.fetchPluginStatus(plugin)
-    }, currentInterval)
-
-    this.timers.set(plugin.name, timer)
-    log.debug(`[${plugin.name}] Timer set with interval ${currentInterval}ms`)
-  }
-
-  /**
-   * 获取插件当前轮询间隔（支持动态调整）
-   *
-   * 以用户配置的 defaultPollInterval 作为基础值(覆盖插件硬编码的 pollInterval),
-   * 再由插件的 adjustPollInterval / minPollInterval / maxPollInterval 进行动态调整与上下限保护。
-   */
-  private getPluginInterval(plugin: MonitorPlugin): number {
     const lastStatus = this.lastFetchResults.get(plugin.name)
-    let interval = this.defaultPollInterval
-
-    if (lastStatus && plugin.adjustPollInterval) {
-      interval = plugin.adjustPollInterval(lastStatus)
-    }
-
-    if (plugin.minPollInterval) {
-      interval = Math.max(interval, plugin.minPollInterval)
-    }
-    if (plugin.maxPollInterval) {
-      interval = Math.min(interval, plugin.maxPollInterval)
-    }
-
-    return interval
-  }
-
-  /**
-   * 停止单个插件
-   */
-  private stopPlugin(name: string): void {
-    const timer = this.timers.get(name)
-    if (timer) {
-      clearInterval(timer)
-      this.timers.delete(name)
-    }
+    this.scheduler.startPlugin(plugin, (p) => this.fetchPluginStatus(p), lastStatus)
   }
 
   /**
@@ -169,8 +120,7 @@ export class MonitorService {
 
       // 如果插件支持动态间隔调整，重新设置定时器
       if (plugin.adjustPollInterval || plugin.minPollInterval || plugin.maxPollInterval) {
-        this.stopPlugin(plugin.name)
-        this.setPluginTimer(plugin)
+        this.scheduler.reschedule(plugin, (p) => this.fetchPluginStatus(p), status)
       }
     } catch (err) {
       log.warn(`Plugin "${plugin.name}" fetch failed:`, err)
@@ -185,197 +135,77 @@ export class MonitorService {
   }
 
   /**
-   * 处理 Push 推送数据
-   */
-  handlePush(push: PushStatus): void {
-    this.pushCache.set(push.tool, {
-      data: push,
-      expiresAt: Date.now() + PUSH_TTL_MS,
-    })
-    log.info(`Push received: ${push.tool} = ${push.status} - ${push.summary}`)
-    this.emitUpdate()
-  }
-
-  /**
-   * 获取当前快照（不触发新的 fetch）
-   */
-  getSnapshot(): AggregatedStatus {
-    if (this.latestStatus) {
-      return this.latestStatus
-    }
-    return {
-      petState: 'idle',
-      tools: [],
-      summary: 'DesktopXPet 待机中',
-    }
-  }
-
-  /**
-   * 状态聚合逻辑
-   * 优先级: error > working > completed > idle
-   */
-  private aggregateStatus(allStatuses: MonitorStatus[]): AggregatedStatus {
-    const hasError = allStatuses.some((s) => s.status === 'error')
-    const isWorking = allStatuses.some((s) => s.status === 'working')
-    const hasCompleted = allStatuses.some(
-      (s) => s.status === 'completed' && Date.now() - s.timestamp < 30_000
-    )
-
-    let petState: 'idle' | 'working' | 'happy' | 'error'
-    if (hasError) petState = 'error'
-    else if (isWorking) petState = 'working'
-    else if (hasCompleted) petState = 'happy'
-    else petState = 'idle'
-
-    const summary = this.buildSummary(allStatuses)
-
-    return {
-      petState,
-      tools: allStatuses,
-      summary,
-    }
-  }
-
-  /**
-   * 构建摘要文本
-   */
-  private buildSummary(statuses: MonitorStatus[]): string {
-    if (statuses.length === 0) {
-      return 'DesktopXPet 待机中'
-    }
-
-    const working = statuses.filter((s) => s.status === 'working')
-    if (working.length > 0) {
-      return working.map((s) => `${s.tool}: ${s.summary}`).join(' | ')
-    }
-
-    const errors = statuses.filter((s) => s.status === 'error')
-    if (errors.length > 0) {
-      return `⚠️ ${errors.length} 个工具出错`
-    }
-
-    const completed = statuses.filter(
-      (s) => s.status === 'completed' && Date.now() - s.timestamp < 30_000
-    )
-    if (completed.length > 0) {
-      return `✅ ${completed.map((s) => s.tool).join(', ')} 完成`
-    }
-
-    return 'DesktopXPet 待机中'
-  }
-
-  /**
    * 发出状态更新通知
    *
-   * 通知去重：同一 completed 事件（tool + timestamp）在 30 秒窗口内只标记一次 newCompleted，
-   * 避免 happy 状态持续期间每次轮询都重复触发通知/声音。UI 的 petState 动画不受影响。
-   *
-   * 状态变化检测：如果关键状态字段（petState、tools 的 tool/status）没有变化，
-   * 且非 working 状态的 summary 也没变，跳过广播以减少不必要的 IPC 和 React 重渲染。
-   * 但 working 状态下 summary 变化（如编辑的文件/行号变化）会触发广播，保证用户看到最新信息。
+   * 流程：
+   *   1. 清理 pushCache 过期条目
+   *   2. 聚合状态
+   *   3. 检测新 completed 事件（30 秒窗口内去重，避免 happy 期间重复通知）
+   *   4. 清理 notifiedCompletedKeys 过期 key
+   *   5. 广播决策（与上次状态对比，未变化则跳过以减少 IPC 与 React 重渲染）
    */
   private emitUpdate(): void {
-    const status = this.aggregateAll()
-
     const now = Date.now()
-    const COMPLETED_WINDOW = 30_000
+    this.pushDataManager.cleanExpired(now)
 
-    // 收集当前 30 秒窗口内的 completed 事件 key
-    const currentCompletedKeys = new Set<string>()
-    for (const t of status.tools) {
-      if (t.status === 'completed' && now - t.timestamp < COMPLETED_WINDOW) {
-        currentCompletedKeys.add(`${t.tool}|${t.timestamp}`)
-      }
-    }
-
-    // 判断是否有"新出现"的 completed 事件（未通知过）
-    let hasNew = false
-    for (const key of currentCompletedKeys) {
-      if (!this.notifiedCompletedKeys.has(key)) {
-        hasNew = true
-        this.notifiedCompletedKeys.add(key)
-      }
-    }
-
-    // 清理已通知集合中过期的 key（超过 30 秒窗口），避免集合无限增长
-    for (const key of this.notifiedCompletedKeys) {
-      const idx = key.lastIndexOf('|')
-      if (idx > 0) {
-        const ts = Number(key.slice(idx + 1))
-        if (now - ts >= COMPLETED_WINDOW) {
-          this.notifiedCompletedKeys.delete(key)
-        }
-      }
-    }
-
+    const status = this.aggregateAll()
+    const hasNew = this.deduplicator.detectNewCompleted(status, now)
+    this.deduplicator.cleanup(now)
     status.newCompleted = hasNew
 
-    // 状态变化检测：按 tool 名称匹配比较（而非索引），避免数组顺序变化导致误判
-    // 注意：去重逻辑基于主进程侧的 latestStatus，但渲染进程的 petState 可能被
-    // 其他操作（点击、唤醒等）修改为不同值。因此去重条件要宽松：
-    // - 只在所有工具都是 idle 且 petState 没变时才跳过广播
-    // - working 状态下始终广播（summary 可能变化，且需要保证渲染进程状态一致）
-    if (this.latestStatus && !hasNew) {
-      const prev = this.latestStatus
-      const stateChanged = prev.petState !== status.petState
-
-      // 按名称构建 map 比较，避免索引错位
-      const prevMap = new Map(prev.tools.map((t) => [t.tool, t]))
-      const curMap = new Map(status.tools.map((t) => [t.tool, t]))
-
-      const toolsChanged =
-        prevMap.size !== curMap.size ||
-        status.tools.some((t) => {
-          const prevTool = prevMap.get(t.tool)
-          return !prevTool || prevTool.status !== t.status
-        })
-
-      // working 状态下，summary 变化也要广播（用户能看到当前编辑的文件/行号）
-      const summaryChanged =
-        status.petState === 'working' &&
-        status.tools.some((t) => {
-          const prevTool = prevMap.get(t.tool)
-          return prevTool && prevTool.status === 'working' && prevTool.summary !== t.summary
-        })
-
-      // working 状态下始终广播（保证渲染进程状态一致，即使主进程侧状态没变）
-      const isWorkingBroadcast = status.petState === 'working'
-
-      if (!stateChanged && !toolsChanged && !summaryChanged && !isWorkingBroadcast) {
-        // 状态未变化且非 working，更新 latestStatus 但不广播
-        log.debug(
-          `emitUpdate skipped (no change): petState=${status.petState}, tools=[${status.tools.map((t) => `${t.tool}=${t.status}`).join(',')}]`
-        )
-        this.latestStatus = status
-        return
-      }
-
-      log.debug(
-        `emitUpdate broadcast reason: stateChanged=${stateChanged}, toolsChanged=${toolsChanged}, summaryChanged=${summaryChanged}, isWorking=${isWorkingBroadcast}`
-      )
-    }
-
-    this.latestStatus = status
-    this.lastBroadcastTime = now
-    log.info(
-      `Status broadcast: petState=${status.petState}, tools=[${status.tools.map((t) => `${t.tool}=${t.status}`).join(',')}], summary="${status.summary}", newCompleted=${hasNew}`
-    )
-    this.onUpdate?.(status)
+    this.broadcaster.broadcast(status, hasNew, now)
   }
 
   /**
-   * 强制同步当前状态到渲染进程（兜底机制）
-   * 每 30 秒触发一次，保证渲染进程状态最终一致。
-   * 如果距离上次广播超过 30 秒，重新广播当前状态。
+   * 合并轮询状态与推送状态（推送状态覆盖同 tool 的轮询状态）
    */
-  private forceSync(): void {
-    if (!this.latestStatus) return
-    const now = Date.now()
-    // 距离上次广播超过 30 秒才强制同步，避免与正常广播重复
-    if (now - this.lastBroadcastTime >= 30_000) {
-      log.debug('Force sync: re-broadcasting current status')
-      this.onUpdate?.(this.latestStatus)
-      this.lastBroadcastTime = now
+  private mergeStatuses(
+    pollStatuses: MonitorStatus[],
+    pushStatuses: MonitorStatus[]
+  ): MonitorStatus[] {
+    const result = [...pollStatuses]
+    for (const pushStatus of pushStatuses) {
+      const existing = result.findIndex((s) => s.tool === pushStatus.tool)
+      if (existing >= 0) {
+        result[existing] = pushStatus
+      } else {
+        result.push(pushStatus)
+      }
+    }
+    return result
+  }
+
+  /**
+   * 处理插件启停(由 PluginRegistry.togglePlugin 触发)
+   *
+   * 启用:调用 plugin.init(config) 后启动该插件的定时轮询
+   * 禁用:清除定时器、从 lastFetchResults 删除状态、调用 plugin.dispose()
+   */
+  private handleToggle(name: string, enabled: boolean): void {
+    const plugin = this.registry.getPlugin(name)
+    if (!plugin) {
+      log.warn(`Toggle unknown plugin: ${name}`)
+      return
+    }
+    if (enabled) {
+      const config = this.registry.getPluginConfig(name)
+      plugin
+        .init?.(config)
+        .then(() => {
+          this.startPlugin(plugin)
+          log.info(`Plugin "${name}" started via toggle`)
+        })
+        .catch((err) => {
+          log.error(`Plugin "${name}" init failed on toggle:`, err)
+        })
+    } else {
+      this.scheduler.stopPlugin(name)
+      this.lastFetchResults.delete(name)
+      plugin
+        .dispose?.()
+        .catch((err) => log.warn(`Plugin "${name}" dispose failed on toggle:`, err))
+      log.info(`Plugin "${name}" stopped via toggle`)
+      this.emitUpdate()
     }
   }
 }

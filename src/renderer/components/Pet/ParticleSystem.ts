@@ -53,7 +53,7 @@ export interface Particle {
 }
 
 /** 发射配置 */
-interface EmitConfig {
+export interface EmitConfig {
   centerX: number
   centerY: number
   radius: number
@@ -266,14 +266,14 @@ export class ParticleSystem {
   private globalHueOffset = 0
   /** 全局色相偏移速度 (度/秒) */
   private globalHueSpeed = 8
+  /** 总粒子数软上限 */
+  private static readonly MAX_PARTICLES = 40
   /**
    * 渐变缓存 — 按 (形状, 量化颜色, 量化尺寸) 缓存 CanvasGradient。
-   * 粒子每帧色相偏移很小，量化后大部分帧命中缓存，避免每帧创建大量 gradient 对象。
-   * CanvasGradient 绑定到创建它的 context，本系统在同一 canvas 上渲染，context 稳定。
    */
   private gradientCache: Map<string, CanvasGradient> = new Map()
-  /** 缓存上限，防止极端情况无限增长 */
-  private static readonly GRADIENT_CACHE_LIMIT = 256
+  /** 缓存上限 */
+  private static readonly GRADIENT_CACHE_LIMIT = 64
 
   constructor(width: number, height: number) {
     this.canvasWidth = width
@@ -303,6 +303,31 @@ export class ParticleSystem {
   }
 
   /**
+   * LRU 读取:命中时提升到末尾(最近使用),保证热数据不被淘汰
+   */
+  private getGradient(key: string): CanvasGradient | undefined {
+    const cached = this.gradientCache.get(key)
+    if (cached) {
+      // 先 delete 再 set,把该条目提升到 Map 迭代顺序末尾
+      this.gradientCache.delete(key)
+      this.gradientCache.set(key, cached)
+    }
+    return cached
+  }
+
+  /**
+   * LRU 写入:满时只淘汰最久未使用的一条,避免批量淘汰造成周期性掉帧
+   */
+  private setGradient(key: string, gradient: CanvasGradient): void {
+    if (this.gradientCache.size >= ParticleSystem.GRADIENT_CACHE_LIMIT) {
+      // Map.keys().next().value 是迭代顺序中最早插入且未被 get 提升的条目
+      const oldest = this.gradientCache.keys().next().value
+      if (oldest) this.gradientCache.delete(oldest)
+    }
+    this.gradientCache.set(key, gradient)
+  }
+
+  /**
    * 获取或创建缓存的 radialGradient。
    * 所有 gradient 使用相对坐标 (0,0)，调用方需先 translate 到粒子位置。
    */
@@ -312,19 +337,15 @@ export class ParticleSystem {
     radius: number,
     stops: Array<{ offset: number; color: string }>
   ): CanvasGradient {
-    let grad = this.gradientCache.get(key)
-    if (grad) return grad
+    const cached = this.getGradient(key)
+    if (cached) return cached
 
-    grad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius)
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius)
     for (const stop of stops) {
       grad.addColorStop(stop.offset, stop.color)
     }
 
-    // 缓存上限保护：超过时清空重建（简单策略，避免 LRU 复杂度）
-    if (this.gradientCache.size >= ParticleSystem.GRADIENT_CACHE_LIMIT) {
-      this.gradientCache.clear()
-    }
-    this.gradientCache.set(key, grad)
+    this.setGradient(key, grad)
     return grad
   }
 
@@ -360,6 +381,7 @@ export class ParticleSystem {
 
     // 全局色相偏移累积
     this.globalHueOffset += this.globalHueSpeed * deltaMs * 0.001
+    this.globalHueOffset %= 360
 
     const config = STATE_CONFIGS[this.currentState]
     if (config) this.emit(config)
@@ -416,7 +438,7 @@ export class ParticleSystem {
   // ----------------------------------------------------------
 
   private emit(cfg: EmitConfig): void {
-    if (this.particles.length >= cfg.maxCount) return
+    if (this.particles.length >= cfg.maxCount || this.particles.length >= ParticleSystem.MAX_PARTICLES) return
     if (Math.random() > cfg.probability) return
 
     const angle = rand(cfg.angleMin, cfg.angleMax)
@@ -445,7 +467,7 @@ export class ParticleSystem {
       rotationSpeed: rand(-1.5, 1.5),
       gravity: cfg.gravity ?? 0,
       trail: [],
-      trailLength: cfg.trailLength ?? 0,
+      trailLength: 0,
       drag: cfg.drag ?? 0,
       pulsePhase: Math.random() * Math.PI * 2,
       pulseSpeed: rand(2, 5),
@@ -724,6 +746,23 @@ export class ParticleSystem {
 
   get particleCount(): number {
     return this.particles.length
+  }
+
+  /**
+   * 一次性爆发粒子 — 用于互动特效（轻量、无拖尾、低数量）
+   */
+  burst(config: Partial<EmitConfig>, count: number): void {
+    const merged: EmitConfig = {
+      ...STATE_CONFIGS.happy!,
+      ...config,
+      trailLength: 0,
+      probability: 1,
+      maxCount: Math.min(count + this.particles.length, ParticleSystem.MAX_PARTICLES),
+    }
+    const actualCount = Math.min(count, ParticleSystem.MAX_PARTICLES - this.particles.length)
+    for (let i = 0; i < actualCount; i++) {
+      this.emit(merged)
+    }
   }
 
   clear(): void {

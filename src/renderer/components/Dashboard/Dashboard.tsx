@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Settings from '../Settings/Settings'
 import SkinSelector from '../SkinSelector/SkinSelector'
 import PomodoroTimer from '../PomodoroTimer/PomodoroTimer'
+import HelpPanel from '../HelpPanel/HelpPanel'
 import { useAppStore } from '../../stores/appStore'
 import { getToolIcon, getStatusColor, getStatusLabel } from '../../shared/tool-utils'
 import type { AggregatedStatus, MonitorStatus, PetState } from '@shared/types'
@@ -48,6 +49,10 @@ export default function Dashboard() {
   // 宠物名称编辑
   const petName = useAppStore((s) => s.petName)
   const setPetName = useAppStore((s) => s.setPetName)
+  const persistPetName = useAppStore((s) => s.persistPetName)
+  const nurtureState = useAppStore((s) => s.nurtureState)
+  const displayState = useAppStore((s) => s.displayState)
+  const unlockedStates = useAppStore((s) => s.unlockedStates)
   const [editingName, setEditingName] = useState(false)
   const [nameInput, setNameInput] = useState('')
   const nameInputRef = useRef<HTMLInputElement>(null)
@@ -60,9 +65,12 @@ export default function Dashboard() {
 
   const handleSaveName = useCallback(() => {
     const name = nameInput.trim()
-    if (name) setPetName(name)
+    if (name) {
+      setPetName(name)
+      void persistPetName(name)
+    }
     setEditingName(false)
-  }, [nameInput, setPetName])
+  }, [nameInput, setPetName, persistPetName])
 
   const handleNameKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -89,8 +97,15 @@ export default function Dashboard() {
         })
       }
 
-      // 累积所有出现过的工具
+      // 累积当前活跃的工具
       if (newStatus?.tools) {
+        // 移除不再上报的工具，防止 Map 无界增长
+        const newToolNames = new Set(newStatus.tools.map((t) => t.tool))
+        for (const key of toolsRef.current.keys()) {
+          if (!newToolNames.has(key)) {
+            toolsRef.current.delete(key)
+          }
+        }
         for (const tool of newStatus.tools) {
           const existing = toolsRef.current.get(tool.tool)
           toolsRef.current.set(tool.tool, {
@@ -139,12 +154,24 @@ export default function Dashboard() {
     }
   }, [])
 
-  const pluginTools = Array.from(connectedTools.values()).filter((t) => t.source === 'plugin')
-  const pushTools = Array.from(connectedTools.values()).filter((t) => t.source === 'push')
+  const pluginTools = useMemo(
+    () => Array.from(connectedTools.values()).filter((t) => t.source === 'plugin'),
+    [connectedTools]
+  )
+  const pushTools = useMemo(
+    () => Array.from(connectedTools.values()).filter((t) => t.source === 'push'),
+    [connectedTools]
+  )
 
-  const allTools = Array.from(connectedTools.values())
-  const workingTools = allTools.filter((t) => t.status === 'working')
-  const errorTools = allTools.filter((t) => t.status === 'error')
+  const allTools = useMemo(() => Array.from(connectedTools.values()), [connectedTools])
+  const workingTools = useMemo(
+    () => allTools.filter((t) => t.status === 'working'),
+    [allTools]
+  )
+  const errorTools = useMemo(
+    () => allTools.filter((t) => t.status === 'error'),
+    [allTools]
+  )
 
   return (
     <div className="dashboard">
@@ -213,6 +240,63 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* 养成面板 */}
+      {nurtureState && (
+        <div className="nurture-panel">
+          <h2 className="section-title">🌟 养成状态</h2>
+          <div className="nurture-level-row">
+            <span className="nurture-level">Lv.{nurtureState.growth.level}</span>
+            <div className="nurture-xp-bar">
+              <div
+                className="nurture-xp-fill"
+                style={{ width: `${(nurtureState.growth.xp / nurtureState.growth.xpToNextLevel) * 100}%` }}
+              />
+            </div>
+            <span className="nurture-xp-text">
+              {nurtureState.growth.xp}/{nurtureState.growth.xpToNextLevel} XP
+            </span>
+          </div>
+          <div className="nurture-vitals">
+            {[
+              { label: '心情', value: nurtureState.vitals.mood, color: '#E91E63' },
+              { label: '饱食', value: nurtureState.vitals.satiety, color: '#FF9800' },
+              { label: '精力', value: nurtureState.vitals.energy, color: '#4CAF50' },
+              { label: '亲密', value: nurtureState.vitals.intimacy, color: '#9C27B0' },
+            ].map((v) => (
+              <div key={v.label} className="nurture-vital-row">
+                <span className="nurture-vital-label">{v.label}</span>
+                <div className="nurture-vital-bar">
+                  <div
+                    className="nurture-vital-fill"
+                    style={{ width: `${v.value}%`, backgroundColor: v.color }}
+                  />
+                </div>
+                <span className="nurture-vital-value">{Math.round(v.value)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="nurture-stats">
+            <span>完成任务: {nurtureState.growth.completedTasks}</span>
+            <span>番茄钟: {nurtureState.growth.pomodorosCompleted}</span>
+            <span>工作时长: {Math.round(nurtureState.growth.totalWorkMinutes)}分钟</span>
+          </div>
+          {displayState && (
+            <div className="nurture-stats">
+              <span>显示状态: {displayState.state}</span>
+              {displayState.source && (
+                <span>来源: {displayState.source}</span>
+              )}
+              {displayState.reason && <span>原因: {displayState.reason}</span>}
+            </div>
+          )}
+          {unlockedStates.length > 0 && (
+            <div className="nurture-stats">
+              <span>已解锁: {unlockedStates.join(', ')}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 并行工作概览 */}
       {workingTools.length > 0 && (
         <div className="parallel-overview">
@@ -235,7 +319,7 @@ export default function Dashboard() {
           <div className="status-timeline">
             {history.map((entry, i) => (
               <div
-                key={i}
+                key={`${entry.time.getTime()}-${i}`}
                 className="timeline-bar"
                 style={{
                   height: `${STATE_HEIGHTS[entry.petState] || 20}%`,
@@ -348,6 +432,7 @@ export default function Dashboard() {
         <PomodoroTimer />
         <SkinSelector />
         <Settings />
+        <HelpPanel />
       </div>
     </div>
   )

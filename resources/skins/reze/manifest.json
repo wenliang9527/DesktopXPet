@@ -1,9 +1,9 @@
 {
   "name": "蕾塞 Reze (Chainsaw Man)",
   "author": "DesktopXPet",
-  "version": "2.0.0",
+  "version": "4.3.0",
   "preview": "preview.png",
-  "description": "电锯人·蕾塞 — 炸弹少女，静态立绘 + 动态效果",
+  "description": "电锯人·蕾塞 — 炸弹少女，全身立绘 v4.3，雏菊花饰 + 百褶裙，透明背景，23 个动作 + 14 个养成状态(按等级解锁)",
   "renderMode": "static",
   "frameSize": {
     "width": 384,
@@ -30,6 +30,24 @@
       ],
       "duration": 3
     },
+    "jump": {
+      "effects": [
+        { "type": "float", "speed": 0.1, "intensity": 0.001 }
+      ],
+      "duration": 0.45
+    },
+    "eat": {
+      "effects": [
+        { "type": "breathe", "speed": 1.0, "intensity": 0.01 }
+      ],
+      "duration": 0.8
+    },
+    "stroke": {
+      "effects": [
+        { "type": "sway", "speed": 1.5, "intensity": 0.03 }
+      ],
+      "duration": 0.6
+    },
     "sleeping": {
       "effects": [
         { "type": "breathe", "speed": 0.5, "intensity": 0.02 },
@@ -41,6 +59,274 @@
         { "type": "bounce", "speed": 3.0, "intensity": 7 },
         { "type": "sway", "speed": 2.5, "intensity": 0.05 }
       ]
+    },
+    "shy": {
+      "effects": [
+        { "type": "sway", "speed": 1.2, "intensity": 0.025 },
+        { "type": "breathe", "speed": 1.0, "intensity": 0.012 }
+      ],
+      "duration": 3
+    },
+    "angry": {
+      "effects": [
+        { "type": "bounce", "speed": 3.0, "intensity": 6 },
+        { "type": "sway", "speed": 2.5, "intensity": 0.04 }
+      ],
+      "duration": 2.5
+    },
+    "dance": {
+      "effects": [
+        { "type": "bounce", "speed": 2.5, "intensity": 10 },
+        { "type": "sway", "speed": 2.0, "intensity": 0.05 }
+      ],
+      "duration": 4
+    },
+    "run": {
+      "effects": [
+        { "type": "sway", "speed": 3.0, "intensity": 0.06 },
+        { "type": "float", "speed": 2.0, "intensity": 3 }
+      ],
+      "duration": 2
+    },
+    "walk": {
+      "effects": [
+        { "type": "sway", "speed": 1.5, "intensity": 0.03 },
+        { "type": "float", "speed": 1.0, "intensity": 2 }
+      ],
+      "duration": 2.5
+    },
+    "daze": {
+      "effects": [
+        { "type": "float", "speed": 0.3, "intensity": 2 },
+        { "type": "sway", "speed": 0.4, "intensity": 0.015 }
+      ],
+      "duration": 4
+    },
+    "love": {
+      "effects": [
+        { "type": "bounce", "speed": 1.5, "intensity": 5 },
+        { "type": "sway", "speed": 1.0, "intensity": 0.025 }
+      ],
+      "duration": 3.5
+    },
+    "waking": {
+      "effects": [
+        { "type": "float", "speed": 0.5, "intensity": 2 },
+        { "type": "sway", "speed": 0.6, "intensity": 0.02 }
+      ],
+      "duration": 2.5
+    },
+    "hungry": {
+      "effects": [
+        { "type": "breathe", "speed": 0.8, "intensity": 0.015 },
+        { "type": "sway", "speed": 0.5, "intensity": 0.02 }
+      ],
+      "duration": 3
+    },
+    "tired": {
+      "effects": [
+        { "type": "float", "speed": 0.4, "intensity": 2 },
+        { "type": "breathe", "speed": 0.5, "intensity": 0.018 }
+      ],
+      "duration": 4
+    },
+    "sad": {
+      "effects": [
+        { "type": "float", "speed": 0.3, "intensity": 1 },
+        { "type": "sway", "speed": 0.4, "intensity": 0.015 }
+      ],
+      "duration": 4
+    },
+    "lonely": {
+      "effects": [
+        { "type": "breathe", "speed": 0.4, "intensity": 0.02 },
+        { "type": "float", "speed": 0.2, "intensity": 1 }
+      ],
+      "duration": 4
+    },
+    "excited": {
+      "effects": [
+        { "type": "bounce", "speed": 2.5, "intensity": 9 },
+        { "type": "sway", "speed": 2.0, "intensity": 0.04 }
+      ],
+      "duration": 3
+    },
+    "sick": {
+      "effects": [
+        { "type": "breathe", "speed": 0.6, "intensity": 0.015 },
+        { "type": "float", "speed": 0.3, "intensity": 1 }
+      ],
+      "duration": 4
+    },
+    "celebrating": {
+      "effects": [
+        { "type": "bounce", "speed": 2.0, "intensity": 8 },
+        { "type": "sway", "speed": 1.5, "intensity": 0.04 }
+      ],
+      "duration": 4
     }
-  }
+  },
+  "states": [
+    {
+      "name": "daze",
+      "image": "daze",
+      "category": "behavior",
+      "triggers": [
+        { "field": "energy", "op": "lt", "value": 40 },
+        { "field": "mood", "op": "lt", "value": 50 }
+      ],
+      "priority": 25,
+      "unlockLevel": 2,
+      "cooldownMs": 8000
+    },
+    {
+      "name": "hungry",
+      "image": "hungry",
+      "category": "physiological",
+      "triggers": [
+        { "field": "satiety", "op": "lt", "value": 20 }
+      ],
+      "priority": 60,
+      "unlockLevel": 3,
+      "cooldownMs": 10000
+    },
+    {
+      "name": "tired",
+      "image": "tired",
+      "category": "physiological",
+      "triggers": [
+        { "field": "energy", "op": "lt", "value": 25 }
+      ],
+      "priority": 55,
+      "unlockLevel": 3,
+      "cooldownMs": 10000
+    },
+    {
+      "name": "walk",
+      "image": "walk",
+      "category": "behavior",
+      "triggers": [
+        { "field": "mood", "op": "gte", "value": 50 },
+        { "field": "mood", "op": "lt", "value": 80 }
+      ],
+      "priority": 26,
+      "unlockLevel": 3,
+      "cooldownMs": 15000
+    },
+    {
+      "name": "shy",
+      "image": "shy",
+      "category": "emotion",
+      "triggers": [
+        { "field": "intimacy", "op": "gte", "value": 30 },
+        { "field": "intimacy", "op": "lt", "value": 60 }
+      ],
+      "priority": 30,
+      "unlockLevel": 4,
+      "cooldownMs": 12000
+    },
+    {
+      "name": "dance",
+      "image": "dance",
+      "category": "behavior",
+      "triggers": [
+        { "field": "mood", "op": "gte", "value": 85 },
+        { "field": "intimacy", "op": "gte", "value": 50 }
+      ],
+      "priority": 35,
+      "unlockLevel": 5,
+      "cooldownMs": 20000
+    },
+    {
+      "name": "run",
+      "image": "run",
+      "category": "behavior",
+      "triggers": [
+        { "field": "energy", "op": "gte", "value": 80 },
+        { "field": "mood", "op": "gte", "value": 70 }
+      ],
+      "priority": 28,
+      "unlockLevel": 5,
+      "cooldownMs": 15000
+    },
+    {
+      "name": "sad",
+      "image": "sad",
+      "category": "emotion",
+      "triggers": [
+        { "field": "mood", "op": "lt", "value": 30 }
+      ],
+      "priority": 50,
+      "unlockLevel": 6,
+      "cooldownMs": 10000
+    },
+    {
+      "name": "lonely",
+      "image": "lonely",
+      "category": "emotion",
+      "triggers": [
+        { "field": "intimacy", "op": "lt", "value": 15 }
+      ],
+      "priority": 45,
+      "unlockLevel": 6,
+      "cooldownMs": 10000
+    },
+    {
+      "name": "excited",
+      "image": "excited",
+      "category": "emotion",
+      "triggers": [
+        { "field": "mood", "op": "gte", "value": 90 }
+      ],
+      "priority": 40,
+      "unlockLevel": 6,
+      "cooldownMs": 12000
+    },
+    {
+      "name": "angry",
+      "image": "angry",
+      "category": "emotion",
+      "triggers": [
+        { "field": "mood", "op": "lt", "value": 20 }
+      ],
+      "priority": 48,
+      "unlockLevel": 7,
+      "cooldownMs": 10000
+    },
+    {
+      "name": "love",
+      "image": "love",
+      "category": "emotion",
+      "triggers": [
+        { "field": "intimacy", "op": "gte", "value": 80 }
+      ],
+      "priority": 38,
+      "unlockLevel": 8,
+      "cooldownMs": 15000
+    },
+    {
+      "name": "sick",
+      "image": "sick",
+      "category": "physiological",
+      "triggers": [
+        { "field": "satiety", "op": "lt", "value": 10 },
+        { "field": "energy", "op": "lt", "value": 15 }
+      ],
+      "priority": 70,
+      "unlockLevel": 10,
+      "cooldownMs": 15000
+    },
+    {
+      "name": "celebrating",
+      "image": "celebrating",
+      "category": "behavior",
+      "triggers": [
+        { "field": "level", "op": "gte", "value": 10 },
+        { "field": "event", "op": "eq", "value": "task_completed" }
+      ],
+      "priority": 65,
+      "unlockLevel": 10,
+      "cooldownMs": 5000
+    }
+  ]
 }

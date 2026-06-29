@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { join } from 'path'
+import { join, sep } from 'path'
 import fs from 'fs'
 import AdmZip from 'adm-zip'
 import { createLogger } from './utils/logger'
@@ -66,7 +66,7 @@ export async function installSkinPackage(xpetFilePath: string): Promise<InstallR
       // 防止 zip slip:解压路径必须在 userSkinDir 内
       const targetPath = join(userSkinDir, entry.entryName)
       const resolvedTarget = join(resolvedUserSkinDir, entry.entryName)
-      if (!resolvedTarget.startsWith(resolvedUserSkinDir + '\\') && !resolvedTarget.startsWith(resolvedUserSkinDir + '/')) {
+      if (!resolvedTarget.startsWith(resolvedUserSkinDir + sep)) {
         return { success: false, error: '检测到非法路径(zip slip 攻击)' }
       }
       // 检查 targetPath 也没有越界

@@ -14,6 +14,12 @@ export function createTray(
   switchSkin: () => void,
   skinLoader?: SkinLoader
 ): Tray {
+  // 重复调用时先销毁旧实例，避免泄漏
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
+
   // 创建一个简单的托盘图标
   const iconPath = join(app.getAppPath(), 'resources', 'icons', 'tray-icon.png')
   let trayIcon: ReturnType<typeof nativeImage.createFromPath>
@@ -68,7 +74,7 @@ export function createTray(
       label: '📌 置顶',
       type: 'checkbox',
       checked: true,
-      click: (item) => petWindow.toggleAlwaysOnTop(item.checked),
+      click: (item) => petWindow.setAlwaysOnTop(item.checked),
     },
     { type: 'separator' },
     {

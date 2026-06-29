@@ -36,7 +36,6 @@ export class StaticAnimator {
   private effects: StaticEffect[]
   private duration: number | undefined
   private startTime: number = 0
-  private _needsRedraw: boolean = true
   private _finished: boolean = false
   public onFinish?: () => void
 
@@ -52,10 +51,6 @@ export class StaticAnimator {
 
   get currentImage(): HTMLImageElement {
     return this.image
-  }
-
-  get needsRedraw(): boolean {
-    return this._needsRedraw
   }
 
   get frameProgress(): number {
@@ -78,9 +73,6 @@ export class StaticAnimator {
         this.onFinish?.()
       }
     }
-
-    // 静态模式始终需要重绘（变换随时间变化）
-    this._needsRedraw = true
 
     return {
       sx: 0,
@@ -138,18 +130,10 @@ export class StaticAnimator {
   }
 
   /**
-   * 标记已渲染
-   */
-  markRendered(): void {
-    this._needsRedraw = false
-  }
-
-  /**
    * 重置动画（状态切换时调用）
    */
   reset(): void {
     this.startTime = 0
     this._finished = false
-    this._needsRedraw = true
   }
 }

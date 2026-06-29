@@ -3,9 +3,10 @@ import PetCanvas from './components/Pet/PetCanvas'
 import StatusBubble from './components/StatusBubble/StatusBubble'
 import StatusDetailPopup from './components/StatusDetail/StatusDetailPopup'
 import Dashboard from './components/Dashboard/Dashboard'
-import { useAppStore } from './stores/appStore'
+import { useAppStore, initAppStore } from './stores/appStore'
 import { useIdleTimer } from './hooks/useIdleTimer'
-import type { SkinManifest } from '@shared/types'
+import type { SkinManifest, AggregatedStatus, MonitorStatus, PetNurtureState, NurtureBroadcast } from '@shared/types'
+import type { SkinListItem } from '../preload/index'
 
 function App() {
   const [isDashboard, setIsDashboard] = useState(false)
@@ -29,7 +30,7 @@ function App() {
     async (skinName: string) => {
       try {
         const skins = await window.desktopXPet.getSkinList()
-        const skin = skins.find((s: any) => s.dirName === skinName || s.name === skinName)
+        const skin = skins.find((s: SkinListItem) => s.dirName === skinName || s.name === skinName)
         if (skin) {
           const manifestPath = `${skin.path.replace(/\\/g, '/')}/manifest.json`
           const manifestData = await window.desktopXPet.readSkinImage(manifestPath)
@@ -43,7 +44,8 @@ function App() {
             setManifest(data)
           }
           setSkinDir(skin.path.replace(/\\/g, '/'))
-          setCurrentSkin(skinName)
+          // 优先存 dirName,兼容传入 manifest.name 的旧值
+          setCurrentSkin(skin.dirName)
         }
       } catch (err) {
         console.error('Failed to load skin:', skinName, err)
@@ -56,8 +58,13 @@ function App() {
   useEffect(() => {
     let cleanupStatus: (() => void) | undefined
     let cleanupSkin: (() => void) | undefined
+    let cleanupNurture: (() => void) | undefined
+    let cleanupDisplayState: (() => void) | undefined
+    let cleanupFeedback: (() => void) | undefined
 
     async function init() {
+      // 初始化 appStore 副作用(加载 petName、注册跨窗口监听、加载 showBubble)
+      await initAppStore()
       const settings = await window.desktopXPet.getSettings()
       const skinName = settings?.skin?.current || 'default-cat'
       // 读取用户配置的闲置睡眠时间
@@ -70,7 +77,7 @@ function App() {
         loadSkin(newSkin)
       })
 
-      cleanupStatus = window.desktopXPet.onStatusUpdate((status: any) => {
+      cleanupStatus = window.desktopXPet.onStatusUpdate((status: AggregatedStatus) => {
         if (!status || !status.petState) return
 
         if (status.petState === 'happy' && status.newCompleted) {
@@ -79,8 +86,8 @@ function App() {
         } else if (status.petState === 'error') {
           // 同一 error 工具集合只播放一次音效（避免持续 error 时重复播放）
           const errorKey = (status.tools || [])
-            .filter((t: any) => t.status === 'error')
-            .map((t: any) => t.tool)
+            .filter((t: MonitorStatus) => t.status === 'error')
+            .map((t: MonitorStatus) => t.tool)
             .join(',')
           if (errorKey !== lastErrorKeyRef.current) {
             lastErrorKeyRef.current = errorKey
@@ -92,12 +99,40 @@ function App() {
         }
         useAppStore.getState().setMonitorData(status)
       })
+
+      // 拉取初始养成状态
+      try {
+        const nurtureState = await window.desktopXPet.getNurtureState()
+        if (nurtureState) useAppStore.getState().setNurtureState(nurtureState)
+      } catch (err) {
+        console.warn('Failed to load nurture state:', err)
+      }
+
+      // 监听养成状态更新
+      cleanupNurture = window.desktopXPet.onNurtureUpdate((state: PetNurtureState) => {
+        useAppStore.getState().setNurtureState(state)
+      })
+
+      // 监听养成显示状态广播(主进程侧权威决策:含 displayState + unlockedStates)
+      cleanupDisplayState = window.desktopXPet.onNurtureDisplayState((data: NurtureBroadcast) => {
+        useAppStore.getState().setNurtureState(data.nurtureState)
+        useAppStore.getState().setUnlockedStates(data.unlockedStates)
+        useAppStore.getState().setDisplayState(data.displayState ?? null)
+      })
+
+      // 监听互动反馈(如饱食度已满时"吃饱了~"),由 StatusBubble 显示气泡
+      cleanupFeedback = window.desktopXPet.onNurtureInteractFeedback((message: string) => {
+        useAppStore.getState().setInteractionMessage(message)
+      })
     }
     init()
 
     return () => {
       cleanupStatus?.()
       cleanupSkin?.()
+      cleanupNurture?.()
+      cleanupDisplayState?.()
+      cleanupFeedback?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -178,12 +213,92 @@ function App() {
     }
   }, [resetTimer, stopTimer])
 
+  const isWindowHovered = useAppStore((s) => s.isWindowHovered)
+  const setWindowHovered = useAppStore((s) => s.setWindowHovered)
+
+  // 在 document 级别监听鼠标是否在窗口内，用于展开详情面板
+  useEffect(() => {
+    let hoverTimer: ReturnType<typeof setTimeout> | null = null
+    let lastState = false
+    let lastMoveTime = 0
+    let lastHoverCheck = 0 // 节流：上次处理 hover 检测的时间
+
+    const updateHover = (hovering: boolean) => {
+      if (hovering === lastState) return
+      lastState = hovering
+      setWindowHovered(hovering)
+      window.desktopXPet.setHoverState(hovering)
+    }
+
+    // 启动时重置为未悬停，防止上次异常状态遗留
+    updateHover(false)
+
+    const handleMouseMove = (e: MouseEvent) => {
+      lastMoveTime = performance.now()
+      // 节流：500ms 内最多处理一次 hover 检测，减少 mousemove 高频触发开销
+      if (lastMoveTime - lastHoverCheck < 500) return
+      lastHoverCheck = lastMoveTime
+      const inWindow =
+        e.clientX >= 0 &&
+        e.clientX <= window.innerWidth &&
+        e.clientY >= 0 &&
+        e.clientY <= window.innerHeight
+      if (inWindow) {
+        if (hoverTimer) {
+          clearTimeout(hoverTimer)
+          hoverTimer = null
+        }
+        updateHover(true)
+      }
+    }
+
+    const handleMouseLeave = () => {
+      if (hoverTimer) clearTimeout(hoverTimer)
+      hoverTimer = setTimeout(() => updateHover(false), 80)
+    }
+
+    const handleMouseOut = (e: MouseEvent) => {
+      if (e.relatedTarget) return
+      const outOfWindow =
+        e.clientX < -2 ||
+        e.clientX > window.innerWidth + 2 ||
+        e.clientY < -2 ||
+        e.clientY > window.innerHeight + 2
+      if (outOfWindow) {
+        if (hoverTimer) clearTimeout(hoverTimer)
+        hoverTimer = setTimeout(() => updateHover(false), 80)
+      }
+    }
+
+    // 心跳兜底：透明穿透窗口下 mouseleave/mouseout 可能不触发，
+    // 若已悬停但长时间未收到 mousemove，自动重置为未悬停
+    const heartbeat = setInterval(() => {
+      // 未悬停时直接跳过，避免无谓的 performance.now 调用
+      if (!lastState) return
+      if (performance.now() - lastMoveTime > 600) {
+        updateHover(false)
+      }
+    }, 300)
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseleave', handleMouseLeave)
+    document.addEventListener('mouseout', handleMouseOut)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseleave', handleMouseLeave)
+      document.removeEventListener('mouseout', handleMouseOut)
+      if (hoverTimer) clearTimeout(hoverTimer)
+      clearInterval(heartbeat)
+    }
+  }, [setWindowHovered])
+
   if (isDashboard) {
     return <Dashboard />
   }
 
   return (
-    <div className="pet-container">
+    <div className={`pet-container ${isWindowHovered ? 'window-hovered' : ''}`}>
       <PetCanvas skinDir={skinDir} manifest={manifest} />
       <StatusBubble />
       <StatusDetailPopup />

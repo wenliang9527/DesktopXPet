@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useAppStore } from '../../stores/appStore'
 
 type PomodoroPhase = 'work' | 'break' | 'idle'
 
@@ -6,7 +7,6 @@ interface PomodoroState {
   phase: PomodoroPhase
   remaining: number // 剩余秒数
   running: boolean
-  completedPomodoros: number
 }
 
 const DEFAULT_WORK_MINUTES = 25
@@ -24,11 +24,17 @@ export default function PomodoroTimer() {
     phase: 'idle',
     remaining: DEFAULT_WORK_MINUTES * 60,
     running: false,
-    completedPomodoros: 0,
   })
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 番茄钟完成计数统一由主进程管理（growth.pomodorosCompleted），通过 appStore 订阅
+  const nurtureState = useAppStore((s) => s.nurtureState)
+  const completedPomodoros = nurtureState?.growth.pomodorosCompleted ?? 0
+
   const stateRef = useRef(state)
-  stateRef.current = state
+  useEffect(() => { stateRef.current = state }, [state])
+  // 防止阶段完成回调重复触发(倒计时到 0 与用户点击跳过可能同时发生)
+  const phaseCompleteFiredRef = useRef(false)
 
   // 格式化时间 mm:ss
   const formatTime = (seconds: number): string => {
@@ -39,6 +45,10 @@ export default function PomodoroTimer() {
 
   // 阶段结束时触发
   const handlePhaseComplete = useCallback(() => {
+    // 防止重复触发(倒计时到 0 的 useEffect 与用户点击跳过可能同时触发)
+    if (phaseCompleteFiredRef.current) return
+    phaseCompleteFiredRef.current = true
+
     const current = stateRef.current
     if (current.phase === 'work') {
       // 工作结束,进入休息
@@ -47,7 +57,6 @@ export default function PomodoroTimer() {
         ...prev,
         phase: 'break',
         remaining: breakSeconds,
-        completedPomodoros: prev.completedPomodoros + 1,
       }))
       // 通知 + 音效
       try {
@@ -56,6 +65,7 @@ export default function PomodoroTimer() {
         // Notification 可能不可用
       }
       window.desktopXPet.playSound('complete')
+      window.desktopXPet.nurturePomodoroComplete()
     } else if (current.phase === 'break') {
       // 休息结束,进入工作
       const workSeconds = workMinutes * 60
@@ -86,8 +96,7 @@ export default function PomodoroTimer() {
     intervalRef.current = setInterval(() => {
       setState((prev) => {
         if (prev.remaining <= 1) {
-          // 阶段结束,触发回调(在下一个 tick)
-          setTimeout(handlePhaseComplete, 0)
+          // 阶段结束,仅置零;由下面的 useEffect 监听 remaining===0 触发回调
           return { ...prev, remaining: 0 }
         }
         return { ...prev, remaining: prev.remaining - 1 }
@@ -100,7 +109,21 @@ export default function PomodoroTimer() {
         intervalRef.current = null
       }
     }
-  }, [state.running, handlePhaseComplete])
+  }, [state.running])
+
+  // 监听 remaining === 0 触发阶段完成(用 ref 防重复,避免与"跳过"按钮竞态)
+  useEffect(() => {
+    if (state.remaining === 0 && state.running && state.phase !== 'idle') {
+      handlePhaseComplete()
+    }
+  }, [state.remaining, state.running, state.phase, handlePhaseComplete])
+
+  // remaining 恢复为正值时,重置防重复标记,允许下次阶段完成触发
+  useEffect(() => {
+    if (state.remaining > 0) {
+      phaseCompleteFiredRef.current = false
+    }
+  }, [state.remaining])
 
   const handleStart = (): void => {
     if (state.phase === 'idle') {
@@ -108,8 +131,9 @@ export default function PomodoroTimer() {
         phase: 'work',
         remaining: workMinutes * 60,
         running: true,
-        completedPomodoros: 0,
       })
+      // 重置主进程中的番茄钟计数
+      window.desktopXPet.resetPomodoroCount()
     } else {
       setState((prev) => ({ ...prev, running: true }))
     }
@@ -124,8 +148,9 @@ export default function PomodoroTimer() {
       phase: 'idle',
       remaining: workMinutes * 60,
       running: false,
-      completedPomodoros: 0,
     })
+    // 重置主进程中的番茄钟计数
+    window.desktopXPet.resetPomodoroCount()
   }
 
   const handleSkip = (): void => {
@@ -162,7 +187,7 @@ export default function PomodoroTimer() {
           {phaseLabel}
         </div>
         <div className="pomodoro-time">{formatTime(state.remaining)}</div>
-        <div className="pomodoro-count">已完成 {state.completedPomodoros} 个番茄</div>
+        <div className="pomodoro-count">已完成 {completedPomodoros} 个番茄</div>
         {/* 进度条 */}
         <div className="pomodoro-progress-bar">
           <div

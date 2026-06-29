@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import { getToolIcon, getStatusColor } from '../../shared/tool-utils'
 import type { MonitorStatus } from '@shared/types'
@@ -23,13 +23,19 @@ function getStatusEmoji(s: string): string {
  * 弹窗定位在宠物上方（bottom: 100%），如果空间不够则显示在下方
  */
 function StatusDetailPopupImpl() {
-  const isHovering = useAppStore((s) => s.isHovering)
+  const isWindowHovered = useAppStore((s) => s.isWindowHovered)
   const tools = useAppStore((s) => s.tools)
 
-  if (!isHovering || tools.length === 0) return null
+  const workingCount = useMemo(
+    () => tools.filter((t) => t.status === 'working').length,
+    [tools]
+  )
+  const errorCount = useMemo(
+    () => tools.filter((t) => t.status === 'error').length,
+    [tools]
+  )
 
-  const workingCount = tools.filter((t) => t.status === 'working').length
-  const errorCount = tools.filter((t) => t.status === 'error').length
+  if (!isWindowHovered || tools.length === 0) return null
 
   return (
     <div className="status-detail-popup">

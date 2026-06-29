@@ -41,6 +41,32 @@ export const AnimationConfigSchema = z.union([
   StaticAnimationConfigSchema,
 ])
 
+// 状态触发条件(AND 组合,所有条件都满足才触发)
+// field 扩展支持 'level'(等级触发)和 'event'(事件触发)
+export const StateTriggerSchema = z.object({
+  field: z.enum(['mood', 'satiety', 'energy', 'intimacy', 'level', 'event']),
+  op: z.enum(['lt', 'gt', 'lte', 'gte', 'eq', 'ne']),
+  // vital 字段为 0-100 数值;level 为正整数;event 为事件名字符串
+  value: z.union([z.number().min(0), z.string().min(1)]),
+})
+
+// 皮肤状态配置
+export const SkinStateConfigSchema = z.object({
+  // 状态名,如 'hungry'/'sad'/'excited'
+  name: z.string().min(1),
+  // 对应 PNG 文件名(不含扩展名)
+  image: z.string(),
+  category: z.enum(['emotion', 'physiological', 'behavior']),
+  // AND 组合,全部满足才触发
+  triggers: z.array(StateTriggerSchema).min(1),
+  // 数值越大越优先(默认 50)
+  priority: z.number().int().default(50),
+  // 解锁等级,默认 1
+  unlockLevel: z.number().int().min(1).default(1),
+  // 该状态专属冷却,覆盖全局默认
+  cooldownMs: z.number().int().min(0).optional(),
+})
+
 // 皮肤 manifest
 export const SkinManifestSchema = z.object({
   // 皮肤名称(唯一标识)
@@ -64,6 +90,27 @@ export const SkinManifestSchema = z.object({
   displayScale: z.number().positive().optional(),
   // 渲染模式: 'spritesheet'(逐帧精灵图,默认) 或 'static'(静态立绘+Canvas动画)
   renderMode: z.enum(['spritesheet', 'static']).optional(),
+  // 声明式互动动作:可选,旧 manifest 无此字段时走默认动作(jump/eat/stroke)
+  actions: z
+    .array(
+      z.object({
+        // 动作名,如 'jump'/'eat'/'stroke'/'custom'
+        name: z.string().min(1),
+        // 触发方式
+        trigger: z.enum(['click', 'feed', 'stroke']),
+        // 对应 PNG 文件名(不含扩展名),如 'jump'
+        image: z.string(),
+        // 优先级,数字越大越优先(1-10,默认 1)
+        priority: z.number().int().min(1).max(10).default(1),
+      })
+    )
+    .optional(),
+  // 皮肤状态配置:可选,旧 manifest 无此字段时行为不变
+  states: z.array(SkinStateConfigSchema).optional(),
+  // 皮肤解锁等级(皮肤级别):未达到等级的皮肤在 SkinSelector 中完全隐藏
+  // 与 states[].unlockLevel(状态级别)不同,此字段控制整个皮肤是否可见
+  // 默认 1(初始可用),旧 manifest 无此字段时默认 unlockLevel=1,所有等级可见(向后兼容)
+  unlockLevel: z.number().int().min(1).default(1),
 })
 
 /**

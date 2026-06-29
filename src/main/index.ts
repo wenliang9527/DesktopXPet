@@ -30,12 +30,25 @@ process.on('unhandledRejection', (reason: unknown) => {
   }
 })
 
-app.whenReady().then(() => {
-  initApp().catch((err) => {
-    log.error('Failed to initialize app:', err)
-    app.quit()
+// 单例锁:确保只有一个 DesktopXPet 实例运行
+// 避免多实例竞争 API 端口(9527),导致 IDE 扩展连接到错误实例
+const gotTheLock = app.requestSingleInstanceLock()
+if (!gotTheLock) {
+  log.info('Another DesktopXPet instance is already running, quitting')
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    // 第二实例启动时,聚焦到已有实例(此处无主窗口,宠物窗口由 PetWindowManager 管理)
+    log.warn('Second instance attempt detected, already running')
   })
-})
+
+  app.whenReady().then(() => {
+    initApp().catch((err) => {
+      log.error('Failed to initialize app:', err)
+      app.quit()
+    })
+  })
+}
 
 app.on('before-quit', (e) => {
   e.preventDefault()

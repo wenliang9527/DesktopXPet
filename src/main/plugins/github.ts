@@ -2,6 +2,15 @@ import { createLogger } from '../utils/logger'
 const log = createLogger('GitHubPlugin')
 import type { MonitorPlugin, MonitorStatus } from '@shared/types'
 
+// GitHub API 响应类型定义
+interface GitHubEvent {
+  type: string
+  created_at?: string
+}
+interface GitHubSearchResponse {
+  total_count: number
+}
+
 /**
  * GitHub 活动监控插件
  * 通过 GitHub REST API 获取 commits/PR/issues
@@ -29,46 +38,45 @@ export class GitHubPlugin implements MonitorPlugin {
       }
     }
 
+    const today = new Date().toISOString().split('T')[0]
+    const headers = {
+      Authorization: `Bearer ${this.token}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'DesktopXPet',
+    }
+
     try {
-      const today = new Date().toISOString().split('T')[0]
-
-      // 获取今日 events
-      const eventsResp = await fetch(
-        `https://api.github.com/users/${this.username}/events?per_page=20`,
-        {
-          headers: {
-            Authorization: `Bearer ${this.token}`,
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'DesktopXPet',
-          },
-        }
-      )
-
-      let todayCommits = 0
-      if (eventsResp.ok) {
-        const events = (await eventsResp.json()) as any[]
-        todayCommits = events.filter(
-          (e: any) => e.type === 'PushEvent' && e.created_at?.startsWith(today)
-        ).length
-      }
-
-      // 获取开放 PR
-      const prsResp = await fetch(
-        `https://api.github.com/search/issues?q=is:pr+author:${this.username}+is:open`,
-        {
-          headers: {
-            Authorization: `Bearer ${this.token}`,
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'DesktopXPet',
-          },
-        }
-      )
-
-      let openPRs = 0
-      if (prsResp.ok) {
-        const prData = (await prsResp.json()) as any
-        openPRs = prData.total_count || 0
-      }
+      // 并行获取 events 和 PR，各自独立容错，一个失败不影响另一个
+      const [todayCommits, openPRs] = await Promise.all([
+        (async () => {
+          try {
+            const resp = await fetch(
+              `https://api.github.com/users/${this.username}/events?per_page=20`,
+              { headers, signal: AbortSignal.timeout(5000) }
+            )
+            if (!resp.ok) return 0
+            const events = (await resp.json()) as GitHubEvent[]
+            return events.filter(
+              (e: GitHubEvent) => e.type === 'PushEvent' && e.created_at?.startsWith(today)
+            ).length
+          } catch {
+            return 0
+          }
+        })(),
+        (async () => {
+          try {
+            const resp = await fetch(
+              `https://api.github.com/search/issues?q=is:pr+author:${this.username}+is:open`,
+              { headers, signal: AbortSignal.timeout(5000) }
+            )
+            if (!resp.ok) return 0
+            const prData = (await resp.json()) as GitHubSearchResponse
+            return prData.total_count || 0
+          } catch {
+            return 0
+          }
+        })(),
+      ])
 
       const activityScore = todayCommits + openPRs
       return {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { useAppStore } from '../../stores/appStore'
 import { useClickThrough } from '../../hooks/useClickThrough'
 import { useDraggable } from '../../hooks/useDraggable'
@@ -9,14 +9,23 @@ import type { PetState, SkinManifest, SpritesheetAnimationConfig } from '@shared
 import { isStaticAnimationConfig } from '@shared/types'
 import { PET_RENDER_SIZE } from '@shared/constants'
 
-// 状态映射：waking 使用 idle 图片（因为没有单独的 waking 精灵图）
+/** HD 皮肤判定阈值:源帧最大边 > 渲染尺寸 × 1.5 视为 HD,使用双线性插值 */
+const HD_THRESHOLD = PET_RENDER_SIZE * 1.5
+
+/** 基础状态(非互动动作),waking 为可选独立图,缺失时静默回退 idle */
+const BASE_STATES = ['idle', 'working', 'happy', 'sleeping', 'error', 'waking']
+
+/** 默认互动动作图(向后兼容:manifest 无 actions 时使用) */
+const DEFAULT_ACTION_IMAGES = ['jump', 'eat', 'stroke']
+
+// 状态映射:waking 使用独立 waking.png,缺失时由渲染层回退到 idle
 const STATE_IMAGE_MAP: Record<string, string> = {
   idle: 'idle',
   working: 'working',
   happy: 'happy',
   sleeping: 'sleeping',
   error: 'error',
-  waking: 'idle',
+  waking: 'waking',
 }
 
 interface PetCanvasProps {
@@ -27,6 +36,54 @@ interface PetCanvasProps {
 /** 皮肤切换过渡动画时长 (ms) */
 const TRANSITION_FADE_OUT = 250
 const TRANSITION_FADE_IN = 350
+
+/** 互动触发方式(对应 manifest.actions 的 trigger) */
+type InteractTrigger = 'click' | 'feed' | 'stroke'
+
+/** 互动动作特效 */
+interface InteractionEffect {
+  type: 'jump' | 'wiggle' | 'eat'
+  priority: number
+  startTime: number
+  duration: number
+}
+
+/** 触发方式 → 默认视觉特效 + 默认动作图(向后兼容:manifest 无 actions 时使用) */
+const TRIGGER_DEFAULTS: Record<InteractTrigger, { effect: InteractionEffect['type']; image: string }> = {
+  click: { effect: 'jump', image: 'jump' },
+  feed: { effect: 'eat', image: 'eat' },
+  stroke: { effect: 'wiggle', image: 'stroke' },
+}
+
+/** 默认互动优先级(manifest.actions 缺失或动作未声明 priority 时兜底) */
+const DEFAULT_INTERACTION_PRIORITY: Record<InteractionEffect['type'], number> = {
+  jump: 3,
+  eat: 2,
+  wiggle: 1,
+}
+
+function computeInteractionOffset(effect: InteractionEffect | null, time: number): { x: number; y: number; scale: number } {
+  if (!effect) return { x: 0, y: 0, scale: 1 }
+  const elapsed = time - effect.startTime
+  if (elapsed < 0 || elapsed > effect.duration) return { x: 0, y: 0, scale: 1 }
+  const t = elapsed / effect.duration
+
+  if (effect.type === 'wiggle') {
+    // 左右摇摆 3 次
+    const x = Math.sin(t * Math.PI * 6) * 6 * (1 - t)
+    return { x, y: 0, scale: 1 }
+  }
+
+  if (effect.type === 'jump') {
+    // 向上跳跃 + 落地缓冲
+    const jumpY = -Math.sin(t * Math.PI) * 18 * (1 - t * 0.3)
+    return { x: 0, y: jumpY, scale: 1 }
+  }
+
+  // eat: 咀嚼缩放
+  const chew = Math.sin(t * Math.PI * 8) * 0.06 * (1 - t)
+  return { x: 0, y: 0, scale: 1 + chew }
+}
 
 export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -44,9 +101,67 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
   // 预缩放的精灵图（offscreen canvas，已缩放到 render size）
   const scaledImagesRef = useRef<Record<string, HTMLCanvasElement>>({})
   const currentStateRef = useRef<PetState>('idle')
-  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 缓存 DPR 用于像素检测
   const dprRef = useRef(window.devicePixelRatio || 1)
+  // 当前皮肤的 HD 状态缓存（由独立的 manifest effect 同步，避免主渲染循环依赖 manifest）
+  const hdRef = useRef(false)
+
+  // 互动动作特效
+  const interactionEffectRef = useRef<InteractionEffect | null>(null)
+  // 摸头悬停计时器(鼠标停留 1.5 秒后触发 stroke 动作)
+  const strokeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 启动互动动作(带优先级锁,避免低优先级覆盖高优先级)
+  // trigger: 触发方式,从 manifest.actions 查找匹配动作(取 priority 最高),找不到用默认
+  // 返回匹配的动作图名(用于 setupAnimator);被优先级锁拒绝则返回 null
+  const startInteraction = useCallback(
+    (trigger: InteractTrigger, duration: number): { image: string } | null => {
+      const defaults = TRIGGER_DEFAULTS[trigger]
+      // 从 manifest.actions 查找匹配 trigger 的动作,取 priority 最高的
+      const matched = manifest?.actions?.filter((a) => a.trigger === trigger) ?? []
+      const action =
+        matched.length > 0
+          ? matched.reduce((max, a) => (a.priority > max.priority ? a : max))
+          : null
+      const effect = defaults.effect
+      const image = action?.image ?? defaults.image
+      const priority = action?.priority ?? DEFAULT_INTERACTION_PRIORITY[effect]
+      const currentPriority = interactionEffectRef.current
+        ? interactionEffectRef.current.priority
+        : 0
+      if (priority < currentPriority) return null
+      interactionEffectRef.current = { type: effect, priority, startTime: performance.now(), duration }
+      return { image }
+    },
+    [manifest]
+  )
+
+  // 基于 manifest.states 动态构建完整图片映射(基础 6 状态 + 养成状态)
+  // manifest.states 不存在时,仅使用基础映射,行为与改造前一致
+  const dynamicImageMap = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = { ...STATE_IMAGE_MAP }
+    const states = manifest?.states
+    if (states && Array.isArray(states)) {
+      for (const s of states) {
+        if (s.name && s.image) {
+          map[s.name] = s.image
+        }
+      }
+    }
+    return map
+  }, [manifest])
+
+  // 解析状态对应的图片键:
+  // - waking.png 未加载时静默回退到 idle(可选皮肤不必提供 waking 图)
+  // - 养成状态图未加载时也回退到 idle(向后兼容:旧皮肤无养成状态图)
+  const resolveImageKey = useCallback((state: string): string => {
+    const key = dynamicImageMap[state] || 'idle'
+    // 对应图片未加载时统一回退 idle(waking 与养成状态共用此回退路径)
+    if (!scaledImagesRef.current[key]) {
+      return 'idle'
+    }
+    return key
+  }, [dynamicImageMap])
 
   // 光晕和阴影 gradient 缓存（按 state 缓存，避免每帧重建）
   // 移入组件 ref，避免模块级缓存跨 context 失效
@@ -65,25 +180,25 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
   })
 
   const petState = useAppStore((s) => s.petState)
+  const displayState = useAppStore((s) => s.displayState)
+  const unlockedStates = useAppStore((s) => s.unlockedStates)
+  const setInteractionMessage = useAppStore((s) => s.setInteractionMessage)
   useClickThrough(canvasRef)
   const { onMouseDown } = useDraggable()
 
-  // 组件卸载时清理 clickTimer
-  useEffect(() => {
-    return () => {
-      if (clickTimerRef.current) clearTimeout(clickTimerRef.current)
-    }
-  }, [])
-
-  // 判断当前皮肤是否为 HD（源帧 > 渲染尺寸的 2 倍）
+  // 判断当前皮肤是否为 HD（源帧最大边 > HD_THRESHOLD）
   const isHDSkin = (m: SkinManifest | null): boolean => {
     if (!m?.frameSize) return false
-    return Math.max(m.frameSize.width, m.frameSize.height) > PET_RENDER_SIZE * 1.5
+    return Math.max(m.frameSize.width, m.frameSize.height) > HD_THRESHOLD
   }
 
   // 加载皮肤图片（并行读取 + 预缩放精灵图到 render size + 应用 displayScale）
   const loadSkinImages = useCallback((m: SkinManifest, dir: string): Promise<void> => {
-    const states = ['idle', 'working', 'happy', 'sleeping', 'error']
+    // 基础状态 + 互动动作图 + manifest.states 养成状态图(去重)
+    // 无 actions 时用默认动作兜底;无 states 时仅加载基础+动作图
+    const actionImages = m.actions?.map((a) => a.image) ?? DEFAULT_ACTION_IMAGES
+    const stateImages = m.states?.map((s) => s.image) ?? []
+    const states = Array.from(new Set([...BASE_STATES, ...actionImages, ...stateImages]))
     const renderSize = PET_RENDER_SIZE
     const hd = isHDSkin(m)
     const scale = m.displayScale ?? 1.0
@@ -210,16 +325,20 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
         })
       }
 
-      // waking 状态播放完毕后自动切换到 idle
-      if (currentStateRef.current === 'waking') {
-        if (animatorRef.current) {
-          animatorRef.current.onFinish = () => {
+      // 动画结束回调：waking 切 idle；互动动画结束后恢复 petState 对应图片
+      if (animatorRef.current) {
+        animatorRef.current.onFinish = () => {
+          if (currentStateRef.current === 'waking') {
             useAppStore.getState().setPetState('idle')
+          }
+          if (interactionEffectRef.current) {
+            interactionEffectRef.current = null
+            setupAnimator(resolveImageKey(currentStateRef.current))
           }
         }
       }
     },
-    [manifest]
+    [manifest, resolveImageKey]
   )
 
   // 处理皮肤切换（含过渡动画）
@@ -248,22 +367,82 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     }
   }, [manifest, skinDir, loadSkinImages])
 
-  // 状态切换时更新动画
+  // manifest 变化时同步 HD 状态并更新 canvas 的 imageRendering，
+  // 避免把 manifest 加入主渲染循环依赖（否则会重建整个渲染循环）
   useEffect(() => {
-    if (petState !== currentStateRef.current) {
-      currentStateRef.current = petState
-      const imageKey = STATE_IMAGE_MAP[petState] || 'idle'
-      setupAnimator(imageKey)
+    hdRef.current = isHDSkin(manifest)
+    const canvas = canvasRef.current
+    if (canvas) {
+      canvas.style.imageRendering = hdRef.current ? 'auto' : 'pixelated'
     }
-    // 同步粒子系统状态
-    particleRef.current?.setState(petState)
-  }, [petState, setupAnimator])
+  }, [manifest])
+
+  // 状态决策:displayState 优先(主进程权威决策) > petState 兜底
+  // 互动动作不受影响:互动期间由 startInteraction 直接调用 setupAnimator 切换动作图,
+  // 互动结束后 animator.onFinish 会恢复到 resolveImageKey(currentStateRef.current)
+  useEffect(() => {
+    // 优先使用主进程侧的 displayState(权威决策)
+    let targetState: string
+    if (displayState?.state) {
+      // unlockedStates 安全兜底:养成状态(非基础状态)未解锁时回退到 petState
+      const isBaseState = displayState.state in STATE_IMAGE_MAP
+      const isUnlocked = isBaseState || unlockedStates.includes(displayState.state)
+      targetState = isUnlocked ? displayState.state : petState
+    } else {
+      // 兜底:无 displayState(主进程未实现)时用 petState,行为与改造前一致
+      targetState = petState
+    }
+
+    if (targetState !== currentStateRef.current) {
+      currentStateRef.current = targetState as PetState
+      setupAnimator(resolveImageKey(targetState))
+    }
+    // 同步粒子系统状态(基础 PetState 有效;养成状态回退为 idle 配色)
+    particleRef.current?.setState(targetState as PetState)
+  }, [petState, displayState, unlockedStates, setupAnimator, resolveImageKey])
+
+  // 监听主进程的互动类型触发(明确驱动动画,不依赖 satiety 变化量推断)
+  // 旧实现:从 nurtureState.vitals.satiety 变化量 >= 15 推断喂食,但 clamp(satiety+20, 100)
+  //         导致 satiety≥86 时实际增量 < 15,动画丢失。新实现由主进程 interact() 直接广播类型。
+  useEffect(() => {
+    const unsubscribe = window.desktopXPet.onNurtureInteractTrigger((type) => {
+      if (type === 'feed') {
+        // 喂食时清除悬停计时器，避免摸头覆盖吃饭
+        if (strokeTimerRef.current) {
+          clearTimeout(strokeTimerRef.current)
+          strokeTimerRef.current = null
+        }
+        const interact = startInteraction('feed', 800)
+        if (interact) {
+          setupAnimator(interact.image)
+        }
+        setInteractionMessage('好吃!')
+        particleRef.current?.burst({
+          centerX: 0.5, centerY: 0.5, radius: 30,
+          speedMin: 0.5, speedMax: 1.2,
+          angleMin: -Math.PI, angleMax: 0,
+          sizeMin: 4, sizeMax: 8,
+          colors: [{ h: 35, s: 90, l: 65 }, { h: 25, s: 95, l: 60 }, { h: 45, s: 80, l: 70 }],
+          hueShiftMin: 5, hueShiftMax: 15,
+          lifeMin: 800, lifeMax: 1400,
+          shapes: ['circle', 'sparkle'],
+          gravity: 0.015,
+          drag: 0.002,
+        }, 8)
+      }
+    })
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe()
+    }
+  }, [setInteractionMessage, setupAnimator, startInteraction])
 
   // Canvas 渲染循环（整合精灵 + 粒子 + 阴影 + 光晕 + 过渡）
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
+    // 主渲染循环不设置 willReadFrequently: true,保留 GPU 加速
+    // 点击检测在 handleClick 中用临时 canvas 做像素读取,避免影响主循环性能
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
@@ -277,13 +456,13 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     ctx.scale(dpr, dpr)
 
     // HD 皮肤使用双线性插值，像素皮肤使用最近邻
-    const hd = isHDSkin(manifest)
+    const hd = hdRef.current
     ctx.imageSmoothingEnabled = hd
     if (hd) {
       ctx.imageSmoothingQuality = 'high'
     }
 
-    // 动态设置 canvas CSS image-rendering
+    // 动态设置 canvas CSS image-rendering（由独立的 manifest effect 同步 hdRef）
     if (canvas) {
       canvas.style.imageRendering = hd ? 'auto' : 'pixelated'
     }
@@ -313,12 +492,13 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
 
     // 根据状态和焦点决定目标帧率
     // idle/sleeping 降频到 15fps（脉动缓慢，用户感知不到差异）
+    // working/happy/error 降到 30fps（精灵图动画 ≤15fps，60fps 无视觉增益）
     // 失焦时降到 5fps（宠物不在用户视线焦点）
     const getTargetFps = (state: PetState): number => {
       if (!isWindowFocusedRef.current) return 5
       if (state === 'sleeping') return 10
       if (state === 'idle') return 15
-      return 60
+      return 30
     }
 
     const render = (time: number): void => {
@@ -402,19 +582,22 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
       }
 
       // 3) 精灵层：当前帧
-      // 注意：不能使用 needsRedraw 跳过绘制 — 因为前面 clearRect 已清空 canvas,
-      // 且光晕/阴影每帧都重绘(有脉动动画),精灵也必须每帧绘制,否则会闪烁
       const animator = animatorRef.current
       if (animator && petAlpha > 0.01) {
         const frame = animator.tick(time)
+        const interact = computeInteractionOffset(interactionEffectRef.current, time)
 
         ctx.save()
         ctx.globalAlpha = petAlpha
 
+        const center = logicalSize / 2
+        ctx.translate(center + interact.x, center + interact.y)
+        ctx.scale(interact.scale, interact.scale)
+        ctx.translate(-center, -center)
+
         if (animator instanceof StaticAnimator) {
           // 静态模式：应用配置的动画变换（浮动、呼吸、摇摆、弹跳）
           const transforms = animator.computeTransforms(time)
-          const center = logicalSize / 2
           ctx.translate(center + transforms.translateX, center + transforms.translateY)
           ctx.rotate(transforms.rotation)
           ctx.scale(transforms.scaleX, transforms.scaleY)
@@ -423,7 +606,6 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
           // 精灵图模式：保留原有的微妙呼吸感
           const breathe = 1 + Math.sin(time * 0.002) * 0.008
           if (Math.abs(breathe - 1) > 0.001) {
-            const center = logicalSize / 2
             ctx.translate(center, center)
             ctx.scale(breathe, breathe)
             ctx.translate(-center, -center)
@@ -443,7 +625,6 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
         )
 
         ctx.restore()
-        animator.markRendered()
       }
 
       // 4) 粒子层：渲染在精灵之上
@@ -479,33 +660,61 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
     window.desktopXPet.openDashboard()
   }, [])
 
-  // 点击互动：触发 happy 动画
+  // 点击互动：触发养成互动 + 粒子爆发 + 动作 + 文字
   const handleClick = useCallback((e: React.MouseEvent) => {
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    // getImageData 使用设备像素坐标，需要乘以 DPR
+    // 用临时 canvas 做像素检测,避免主 canvas 设置 willReadFrequently 损失 GPU 加速
+    // drawImage 1x1 像素后 getImageData,性能开销极小
+    const testCanvas = document.createElement('canvas')
+    testCanvas.width = 1
+    testCanvas.height = 1
+    const testCtx = testCanvas.getContext('2d', { willReadFrequently: true })
+    if (!testCtx) return
     const dpr = dprRef.current
-    const pixel = ctx.getImageData(Math.floor(x * dpr), Math.floor(y * dpr), 1, 1).data
+    testCtx.drawImage(
+      canvas,
+      Math.floor(x * dpr), Math.floor(y * dpr), 1, 1,
+      0, 0, 1, 1
+    )
+    const pixel = testCtx.getImageData(0, 0, 1, 1).data
     if (pixel[3] > 0) {
-      // 点击时临时切换到 happy，2 秒后恢复到监控状态而非强制 idle
-      // （避免覆盖监控推送的 working 状态）
-      const prevPetState = useAppStore.getState().petState
-      useAppStore.getState().setPetState('happy')
+      // 点击优先级最高：清除悬停计时器，避免摸头覆盖跳跃
+      if (strokeTimerRef.current) {
+        clearTimeout(strokeTimerRef.current)
+        strokeTimerRef.current = null
+      }
+      // 互动:更新养成属性 + 触发粒子特效 + 切跳跃帧 + 文字,不改变 petState
+      window.desktopXPet.nurtureInteract('pet')
       window.desktopXPet.playSound('click')
-      if (clickTimerRef.current) clearTimeout(clickTimerRef.current)
-      clickTimerRef.current = setTimeout(() => {
-        clickTimerRef.current = null
-        // 恢复到点击前的状态，如果监控已更新则由 setMonitorData 覆盖
-        const currentPetState = useAppStore.getState().petState
-        if (currentPetState === 'happy') {
-          useAppStore.getState().setPetState(prevPetState === 'happy' ? 'idle' : prevPetState)
-        }
-      }, 2000)
+      const interact = startInteraction('click', 450)
+      if (interact) {
+        setupAnimator(interact.image)
+      }
+      setInteractionMessage('开心~')
+      // 轻量粒子爆发
+      particleRef.current?.burst({
+        centerX: 0.5, centerY: 0.42, radius: 28,
+        speedMin: 0.6, speedMax: 1.4,
+        angleMin: -Math.PI, angleMax: 0,
+        sizeMin: 3, sizeMax: 6,
+        colors: [{ h: 330, s: 90, l: 70 }, { h: 350, s: 85, l: 75 }],
+        hueShiftMin: 5, hueShiftMax: 20,
+        lifeMin: 700, lifeMax: 1300,
+        shapes: ['heart', 'sparkle'],
+        gravity: 0.008,
+        drag: 0.002,
+      }, 8)
+    }
+  }, [setInteractionMessage, setupAnimator, startInteraction])
+
+  // 组件卸载时清理 strokeTimer
+  useEffect(() => {
+    return () => {
+      if (strokeTimerRef.current) clearTimeout(strokeTimerRef.current)
     }
   }, [])
 
@@ -517,6 +726,34 @@ export default function PetCanvas({ skinDir, manifest }: PetCanvasProps) {
       onMouseDown={onMouseDown}
       onContextMenu={handleContextMenu}
       onDoubleClick={handleDoubleClick}
+      onMouseEnter={() => {
+        strokeTimerRef.current = setTimeout(() => {
+          // 摸头优先级最低，若跳跃/吃饭正在执行则不覆盖
+          const interact = startInteraction('stroke', 600)
+          if (!interact) return
+          window.desktopXPet.nurtureInteract('stroke')
+          setInteractionMessage('舒服~')
+          setupAnimator(interact.image)
+          particleRef.current?.burst({
+            centerX: 0.5, centerY: 0.35, radius: 25,
+            speedMin: 0.4, speedMax: 1.0,
+            angleMin: -Math.PI, angleMax: 0,
+            sizeMin: 3, sizeMax: 6,
+            colors: [{ h: 320, s: 85, l: 72 }, { h: 340, s: 90, l: 68 }],
+            hueShiftMin: 5, hueShiftMax: 15,
+            lifeMin: 800, lifeMax: 1400,
+            shapes: ['heart', 'petal'],
+            gravity: 0.004,
+            drag: 0.001,
+          }, 6)
+        }, 1500)
+      }}
+      onMouseLeave={() => {
+        if (strokeTimerRef.current) {
+          clearTimeout(strokeTimerRef.current)
+          strokeTimerRef.current = null
+        }
+      }}
     />
   )
 }
